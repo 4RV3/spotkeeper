@@ -1,0 +1,137 @@
+{{define "content"}}
+{{if .NoPlate}}<section class="card" role="alert"><p>Nie podano numeru rejestracyjnego. <a href="#settings">Uzupełnij go w ustawieniach</a> (musi być taki sam jak w aplikacji serwisu). <a href="/pomoc#zanim-zaczniesz">Co przygotować przed startem</a>.</p></section>{{end}}
+{{if .NoParking}}<section class="card" role="alert"><p>Nie wskazano parkingu. <a href="#settings">Uzupełnij identyfikator parkingu w ustawieniach.</a> Pierwszy raz? <a href="/pomoc#zanim-zaczniesz">Co przygotować przed startem</a>.</p></section>{{end}}
+{{if .FlashErr}}<div class="alert err" role="alert">{{.FlashErr}}</div>{{end}}
+<h2 class="section-title">Stan</h2>
+<section id="kpis" class="card stan" aria-label="Stan">
+<div class="stan-main">
+<div class="eyebrow">{{icon "clock"}}Następna rezerwacja automatyczna</div>
+{{if .Next.Found}}
+<div class="stan-date">{{.Next.Target}} <span class="stan-wd">({{.Next.TargetWD}})</span></div>
+<div class="stan-count">otwarcie za <strong class="countdown" data-countdown="{{.NextISO}}">—</strong></div>
+<div class="kpi-sub">{{.Next.AtText}} · dla dnia <strong>{{.Next.Target}}</strong> ({{.Next.TargetWD}})</div>
+{{else if .Settings.Active}}
+<div class="stan-date">Brak</div>
+<div class="kpi-sub">W harmonogramie nie ma dni docelowych w najbliższym tygodniu.</div>
+{{else}}
+<div class="stan-date">Wyłączone</div>
+<div class="kpi-sub">Włącz automat w ustawieniach.</div>
+{{end}}
+</div>
+<dl class="stan-stats">
+<div class="stat"><dt>{{icon "check"}}Skuteczność</dt>
+{{if ge .Rate 0}}<dd>{{.Rate}}%</dd><small>{{.Paid}} opłaconych z {{add .Paid .Bad}} (ostatnie {{.NTasks}} zadań)</small>
+{{else}}<dd>—</dd><small>Brak danych.</small>{{end}}</div>
+<div class="stat"><dt>{{icon "cal"}}Zarezerwowane dni</dt><dd>{{.Booked}}</dd>
+<small>{{if .Nearest}}najbliższy: <strong>{{.Nearest}}</strong>{{else}}brak nadchodzących{{end}}</small></div>
+</dl>
+</section>
+
+<div class="grid">
+<div class="col-main">
+<section id="calendar" class="card" aria-label="Kalendarz">
+<div class="card-head">{{icon "cal"}}<h2>Kalendarz</h2>
+<nav class="cal-nav" aria-label="Miesiące">
+{{if not .CalIsCur}}<a class="cal-today" href="/#calendar" data-cal-nav>Dziś</a>{{end}}
+{{if .CalPrev}}<a class="cal-nav-btn" href="/?m={{.CalPrev}}#calendar" data-cal-nav aria-label="Poprzedni miesiąc" title="Poprzedni miesiąc">‹</a>{{else}}<span class="cal-nav-btn" aria-disabled="true">‹</span>{{end}}
+<span class="cal-title">{{.CalTitle}}</span>
+{{if .CalNext}}<a class="cal-nav-btn" href="/?m={{.CalNext}}#calendar" data-cal-nav aria-label="Następny miesiąc" title="Następny miesiąc">›</a>{{else}}<span class="cal-nav-btn" aria-disabled="true">›</span>{{end}}
+</nav></div>
+<div class="cal-wd" aria-hidden="true"><span>Pn</span><span>Wt</span><span>Śr</span><span>Cz</span><span>Pt</span><span>So</span><span>Nd</span></div>
+<div class="cal">
+{{range .Cells}}{{if .Blank}}<div class="cell blank" aria-hidden="true"></div>{{else}}
+<div class="cell{{if .Today}} today{{end}}{{if .Past}} past{{end}}{{if .Off}} off{{end}}" data-day="{{.Day}}" title="{{.Title}}">
+<div class="cell-top"><span class="num">{{.Num}}</span><span class="wd">{{.WD}}</span></div>
+{{if .Holiday}}<span class="hol">{{.Holiday}}</span>{{end}}
+<div class="badges">
+{{if .Auto}}<span class="badge auto" title="auto">{{mark "auto"}}<span class="lbl">auto</span></span>{{end}}
+{{if .Vacation}}<span class="badge vac" title="urlop">{{mark "vac"}}<span class="lbl">urlop</span></span>{{end}}
+{{if .Status}}<span class="pill {{.Class}}" title="{{.Status}}">{{mark .Class}}<span class="lbl">{{.Status}}</span></span>{{end}}
+</div>
+{{if .CanVac}}{{if .Vacation}}<form method="post" action="/daysoff/delete"><input type="hidden" name="day" value="{{.Day}}"><input type="hidden" name="m" value="{{$.CalMonth}}"><button type="submit" class="mini danger" title="Usuń urlop {{.Day}}" aria-label="Usuń urlop {{.Day}}"><span class="mini-full">× urlop</span><span class="mini-ic" aria-hidden="true">×</span></button></form>{{else}}<form method="post" action="/daysoff"><input type="hidden" name="day" value="{{.Day}}"><input type="hidden" name="m" value="{{$.CalMonth}}"><button type="submit" class="mini" title="Oznacz urlop {{.Day}}" aria-label="Oznacz urlop {{.Day}}"><span class="mini-full">+ urlop</span><span class="mini-ic" aria-hidden="true">{{mark "vac"}}</span></button></form>{{end}}{{end}}
+</div>
+{{end}}{{end}}
+</div>
+<details class="legend-wrap"><summary>Legenda</summary>
+<div class="legend">
+<div class="legend-group">
+<h3>Oznaczenia dni</h3>
+<ul>
+<li><span class="cell sample-tile today legend-today" aria-hidden="true"><span class="num">8</span></span><span>dziś (wyróżniona ramka)</span></li>
+<li><span class="cell sample-tile past legend-past" aria-hidden="true"><span class="num">3</span></span><span>dzień, który już minął</span></li>
+<li><span class="cell sample-tile off legend-off" aria-hidden="true"><span class="num">7</span></span><span>dzień wolny — weekend lub święto (nazwa w kratce), przekreślony numer</span></li>
+<li><span class="cell sample-tile"><span class="badges"><span class="badge auto">{{mark "auto"}}<span class="lbl">auto</span></span></span></span><span>rezerwacja automatyczna o {{.Release}} (zaplanowana: kropka i pasek z lewej), poziom: <strong>{{if .LevelSel}}{{.LevelSel}}{{else}}dowolny{{end}}</strong></span></li>
+<li><span class="cell sample-tile"><span class="badges"><span class="badge vac">{{mark "vac"}}<span class="lbl">urlop</span></span></span></span><span>urlop: automat pominie ten dzień</span></li>
+</ul>
+</div>
+<div class="legend-group">
+<h3>Status rezerwacji</h3>
+<ul>
+<li><span class="cell sample-tile"><span class="badges"><span class="pill paid">{{mark "paid"}}<span class="lbl">opłacono</span></span></span></span><span>opłacono: miejsce zarezerwowane i opłacone</span></li>
+<li><span class="cell sample-tile"><span class="badges"><span class="pill running">{{mark "running"}}<span class="lbl">w toku</span></span></span></span><span>w toku: rezerwacja trwa</span></li>
+<li><span class="cell sample-tile"><span class="badges"><span class="pill pending">{{mark "pending"}}<span class="lbl">oczekuje</span></span></span></span><span>oczekuje na uruchomienie</span></li>
+<li><span class="cell sample-tile"><span class="badges"><span class="pill unconfirmed">{{mark "unconfirmed"}}<span class="lbl">niepotwierdzona</span></span></span></span><span>niepotwierdzona: zarezerwowane, płatność do sprawdzenia</span></li>
+<li><span class="cell sample-tile"><span class="badges"><span class="pill failed">{{mark "failed"}}<span class="lbl">nieudana</span></span></span></span><span>nieudana: nie udało się zarezerwować</span></li>
+<li><span class="cell sample-tile"><span class="badges"><span class="pill cancelled">{{mark "cancelled"}}<span class="lbl">anulowana</span></span></span></span><span>anulowana</span></li>
+<li><span class="cell sample-tile"><span class="badges"><span class="pill skipped">{{mark "skipped"}}<span class="lbl">pominięto</span></span></span></span><span>pominięto: urlop, święto albo masz już rezerwację</span></li>
+</ul>
+</div>
+</div>
+</details>
+</section>
+
+<section id="activity" class="card ledger" aria-label="Ostatnie rezerwacje">
+<div class="card-head">{{icon "list"}}<h2>Ostatnie rezerwacje</h2></div>
+{{if .Tasks}}<table class="tasks">
+<thead><tr><th>Dzień</th><th>Typ</th><th>Status</th><th>Próby</th><th>Miejsce</th><th>Szczegóły</th></tr></thead>
+<tbody>
+{{range .Tasks}}<tr><td data-label="Dzień">{{.Day}}</td><td data-label="Typ">{{.Kind}}</td><td data-label="Status"><span class="pill {{.Class}}">{{.Status}}</span></td><td data-label="Próby">{{.Attempts}}</td><td data-label="Miejsce">{{if .Spot}}{{.Spot}}{{else}}—{{end}}</td><td data-label="Szczegóły">{{.Detail}}</td></tr>
+{{end}}</tbody></table>{{else}}<p class="muted">Brak rezerwacji.</p>{{end}}
+</section>
+</div>
+
+<aside class="col-side">
+<section id="settings" class="card grimoire" aria-label="Ustawienia">
+<div class="card-head">{{icon "gear"}}<h2>Ustawienia</h2></div>
+<form method="post" action="/settings" class="form">
+<h3>Parking</h3>
+<label for="parking_id">Parking</label>
+<select id="parking_id" name="parking_id" data-levels-url="/settings/levels">
+{{range .ParkingOpts}}<option value="{{.ID}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+{{end}}</select>
+{{if .ParkingsErr}}<p class="muted hint">Nie udało się pobrać listy parkingów</p>{{end}}
+<label for="release_time">Godzina otwarcia rezerwacji (GG:MM)</label>
+<input type="text" id="release_time" name="release_time" value="{{.App.ReleaseTime}}" placeholder="GG:MM" maxlength="5">
+<label for="amount">Kwota płatności (zł)</label>
+<input type="text" id="amount" name="amount" value="{{.Amount}}" inputmode="decimal">
+<h3>Samochód</h3>
+<label for="plate">Numer rejestracyjny</label>
+<input type="text" id="plate" name="plate" value="{{.Settings.Plate}}" required>
+<label for="level">Poziom</label>
+<select id="level" name="level" data-current="{{.Settings.Level}}">
+{{range .LevelOpts}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+{{end}}</select>
+<p id="level-note" class="muted hint" hidden></p>
+<h3>Dni rezerwacji</h3>
+<div class="chips">
+{{range .Days}}<label class="chip"><input type="checkbox" name="day" value="{{.Value}}"{{if .Checked}} checked{{end}}><span>{{.Name}}</span></label>{{end}}
+</div>
+<label class="switch"><input type="checkbox" name="active" value="1"{{if .Settings.Active}} checked{{end}}><span class="track"></span><span>Aktywne</span></label>
+<label class="switch"><input type="checkbox" name="skip_holidays" value="1"{{if .Settings.SkipHolidays}} checked{{end}}><span class="track"></span><span>Pomijaj święta</span></label>
+<p class="muted hint">W dni ustawowo wolne automat nie rezerwuje. Urlop zaznaczysz w kalendarzu („+ urlop” na dniach, których rezerwacja jeszcze się nie otworzyła).</p>
+<details><summary>Zaawansowane</summary>
+<label for="ip">Adres IP</label>
+<input type="text" id="ip" name="ip" value="{{.Settings.IP}}" placeholder="wykryj automatycznie">
+<p class="muted hint">Puste = adres IP zostanie wykryty automatycznie.</p>
+<label for="parking_id_manual">Identyfikator parkingu (ręcznie)</label>
+<input type="text" id="parking_id_manual" name="parking_id_manual" placeholder="GUID" maxlength="36" autocomplete="off">
+<p class="muted hint">Tylko gdy lista parkingów się nie wczytuje. Wpisany identyfikator ma pierwszeństwo przed wyborem z listy.</p>
+</details>
+<div class="save-bar"><button class="btn primary block" type="submit">Zapisz</button></div>
+<a class="btn block" href="/check">Sprawdź konfigurację</a>
+</form>
+</section>
+
+</aside>
+</div>
+{{end}}

@@ -1,0 +1,13 @@
+{{define "content"}}
+<div class="card auth-card gate">
+<div class="auth-brand"><img class="logo-lg" src="/static/logo.svg?v={{.LogoV}}" alt="" width="56" height="56"><div><div class="wordmark lg"><span class="wm-fart">Spot</span><span class="wm-cash">Keeper</span></div><div class="muted">Podaj hasło do panelu (APP_PASSWORD).</div></div></div>
+<h1>Zaloguj się</h1>
+{{if .Error}}<div class="alert err" role="alert">{{.Error}}</div>{{end}}
+<form method="post" action="/login" class="form">
+<label for="password">Hasło</label>
+<input type="password" id="password" name="password" autocomplete="current-password" required>
+<button class="btn primary block" type="submit">Zaloguj</button>
+</form>
+<p class="muted hint center-text">Pierwszy raz? <a href="/pomoc#zanim-zaczniesz">Zobacz, co przygotować przed startem</a>.</p>
+</div>
+{{end}}

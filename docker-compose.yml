@@ -1,0 +1,52 @@
+# Domena serwisu rezerwacji - wpisz ją tylko tutaj (sam host, bez https:// i bez ścieżki).
+x-domain: &domain "twoja-domena.pl"   # <- wpisz domenę serwisu rezerwacji (bez https://)
+
+services:
+  spotkeeper:
+    environment:
+      # Wpisz swój login i hasło do serwisu (obok domeny na górze pliku to jedyne wartości, które musisz zmienić).
+      # Wartości w cudzysłowie; jeśli hasło zawiera " lub $, zapisz $ jako $$.
+      API_DOMAIN: *domain               # domena z góry pliku - nie zmieniaj tutaj
+      ACCOUNT_LOGIN: "twoj@email.pl"    # <- wpisz
+      ACCOUNT_PASSWORD: "twoje-haslo"   # <- wpisz
+      APP_PASSWORD: "spotkeeper"        # hasło do panelu - zmień, jeśli panel jest dostępny z internetu (min. 8 znaków)
+      TZ: Europe/Warsaw
+      # --- zaawansowane (odkomentuj, by zmienić; podane są wartości domyślne) ---
+      # PUBLIC_IP_URL: "https://api.ipify.org"   # usługa zwracająca publiczny IP; puste = bez wykrywania
+      # TURNSTILE_URL: "http://turnstile:3099"   # adres usługi turnstile
+      # API_BASE: "https://twoja-domena.pl/api"  # adres API (domyślnie https://<API_DOMAIN>/api)
+      # LISTEN_ADDR: ":8080"                     # adres nasłuchu aplikacji
+      # DB_PATH: "/data/spotkeeper.db"           # ścieżka bazy SQLite
+      # COOKIE_SECURE: "false"                   # true, gdy panel stoi za HTTPS
+      # TRUSTED_PROXIES: ""                      # zaufane proxy (lista CIDR po przecinku); puste = brak
+      # LOG_LEVEL: "info"                        # debug, info, warn, error
+      # POLL_INTERVAL: "500ms"                   # jak często odpytywać o wolne miejsca
+      # PREPARE_LEAD: "10m"                      # ile przed godziną zwolnienia przygotować sesję
+      # MAX_TOKEN_AGE: "30s"                     # maks. wiek tokenu Turnstile
+      # APP_VERSION: "4.7.1"                     # wersja aplikacji serwisu (zmieniaj tylko, gdy serwis wymaga nowszej)
+    image: ghcr.io/4rv3/spotkeeper:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      # Named volume: it inherits /data ownership (nonroot) from the image.
+      - spotkeeper-data:/data
+    depends_on:
+      turnstile:
+        condition: service_healthy
+    restart: unless-stopped
+
+  turnstile:
+    image: ghcr.io/4rv3/spotkeeper-turnstile:latest
+    environment:
+      API_DOMAIN: *domain
+    shm_size: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:3099/health', timeout=5).status == 200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  spotkeeper-data:

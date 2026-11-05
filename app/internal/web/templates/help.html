@@ -1,0 +1,61 @@
+{{define "content"}}
+<div class="help">
+<section id="zanim-zaczniesz" class="card">
+<h1>Zanim zaczniesz</h1>
+<p class="muted">SpotKeeper rezerwuje i opłaca miejsce na Twoim koncie w serwisie rezerwacji, tak jak Ty robisz to w jego aplikacji. Dlatego <strong>zanim cokolwiek zarezerwuje, konto musi mieć już samochód z numerem rejestracyjnym i aktywną kartę płatniczą</strong>. Przejdź po liście:</p>
+<ol class="steps">
+<li><strong>Konto w serwisie rezerwacji</strong> z loginem (e-mail) i hasłem. Jeśli logujesz się tam przez Google lub Apple, ustaw w serwisie hasło do konta, bo SpotKeeper loguje się loginem i hasłem.</li>
+<li><strong>Dostęp do parkingu.</strong> Konto musi widzieć Twój parking, zwykle po zaproszeniu od administratora parkingu.</li>
+<li><strong>Samochód dodany w aplikacji serwisu</strong> (zakładka Pojazdy) z <em>tym samym numerem rejestracyjnym</em>, który wpiszesz w ustawieniach SpotKeepera. Spacje i wielkość liter nie mają znaczenia.</li>
+<li><strong>Karta płatnicza dodana w aplikacji serwisu i aktywna</strong> (zakładka Płatności). SpotKeeper płaci zapisaną kartą; nie obsługuje BLIK ani przelewów.</li>
+<li><strong>Domena serwisu</strong> wpisana w <code>docker-compose.yml</code> (<code>API_DOMAIN</code>), a tam też login i hasło konta (<code>ACCOUNT_LOGIN</code>, <code>ACCOUNT_PASSWORD</code>).</li>
+</ol>
+<p>Gdy to masz, uzupełnij <a href="/#settings">Ustawienia</a> i uruchom <a href="/check">Sprawdź konfigurację</a>. Kontrola niczego nie rezerwuje ani nie opłaca.</p>
+</section>
+
+<section id="faq" class="card">
+<h2>Najczęstsze pytania</h2>
+<details id="domena"><summary>Jak znaleźć domenę serwisu?</summary>
+<p>To sama nazwa hosta z adresu strony internetowej serwisu rezerwacji, np. <code>app.example.com</code>, bez <code>https://</code> i bez ścieżki. Wpisujesz ją w <code>docker-compose.yml</code> jako <code>API_DOMAIN</code> i uruchamiasz kontener ponownie (<code>docker compose up -d</code>).</p></details>
+<details id="parking"><summary>Skąd wziąć identyfikator parkingu?</summary>
+<p>W Ustawieniach wybierz parking z listy pobranej z serwisu (widoczne są tylko parkingi, do których Twoje konto ma dostęp). Jeśli lista się nie wczyta, rozwiń „Zaawansowane” i wpisz identyfikator (GUID) ręcznie.</p></details>
+<details id="godzina"><summary>O której SpotKeeper rezerwuje i na ile dni naprzód?</summary>
+<p>O godzinie otwarcia rezerwacji ustawionej w Ustawieniach (domyślnie 11:00, czas polski). Serwis otwiera wtedy rezerwację dnia przypadającego 28 dni później, więc codziennie o tej godzinie SpotKeeper próbuje zająć miejsce na dzień docelowy, jeśli wypada on w wybranym dniu tygodnia. Dni tygodnia w Ustawieniach dotyczą dnia, który jest rezerwowany (nie dnia, w którym działa automat). Godzinę ustawiasz ręcznie, więc dopasuj ją do godziny otwarcia w serwisie. Sesję przygotowuje z wyprzedzeniem (domyślnie 10 minut), a pierwsze zapytanie do serwisu wysyła dopiero o godzinie otwarcia.</p></details>
+<details id="poziom"><summary>Jaki poziom wybrać i dlaczego lista bywa pusta?</summary>
+<p>„dowolny” losuje jedno z wolnych miejsc, a wybrany poziom zawęża losowanie do miejsc, których nazwa poziomu zawiera wpisany tekst (wielkość liter nie ma znaczenia). Miejsca dla niepełnosprawnych, z ładowarką i miejsca mini-EV są zawsze pomijane. Lista poziomów jest pobierana z dnia z największą liczbą wolnych miejsc, więc gdy akurat nic nie jest wolne, bywa pusta. Zapisany wcześniej poziom jest wtedy zachowany.</p></details>
+<details id="kwota"><summary>Skąd kwota płatności?</summary>
+<p>Kwotę wpisujesz ręcznie w Ustawieniach (domyślnie 15 zł, od 0,01 do 1000 zł). Musi zgadzać się z ceną miejsca na Twoim parkingu, bo SpotKeeper nie pobiera jej z serwisu i płaci dokładnie tę kwotę. Płaci pierwszą aktywną kartą zapisaną na koncie, z adresem IP z Ustawień (puste = wykrywany automatycznie).</p></details>
+<details id="proby"><summary>Ile razy SpotKeeper próbuje i co gdy się nie uda?</summary>
+<p>Po otwarciu rezerwacji wykonuje do 10 prób, w sumie nie dłużej niż 7,5 minuty. Próbą jest każde odpytanie o wolne miejsca, także to, w którym nic nie ma (wtedy czeka 0,5 s do następnego). Po nieudanej rezerwacji czeka 0,5 s, a po błędzie weryfikacji Turnstile, który da się ponowić, 1 s. Jeśli serwis dwukrotnie odpowie, że masz już rezerwację na ten czas, dzień dostaje status „pominięto”. Gdy rezerwacja się uda, start płatności jest ponawiany do 5 razy, a jej status sprawdzany co 2 sekundy (do 20 razy).</p></details>
+<details id="statusy"><summary>Co oznaczają statusy rezerwacji?</summary>
+<ul>
+<li><strong>opłacono</strong>: miejsce zarezerwowane i opłacone.</li>
+<li><strong>w toku</strong> / <strong>oczekuje</strong>: rezerwacja trwa albo czeka na uruchomienie.</li>
+<li><strong>niepotwierdzona</strong> (w tabeli: „niepotwierdzona płatność”): miejsce jest zarezerwowane, ale serwis nie potwierdził płatności (albo nie udało się jej rozpocząć). SpotKeeper sprawdza ją jeszcze po 5 i po 30 minutach i jeśli się powiodła, zmienia status na „opłacono”. Gdy nadal brak potwierdzenia, sprawdź i opłać rezerwację w aplikacji serwisu.</li>
+<li><strong>nieudana</strong>: nie udało się zarezerwować; powód jest w kolumnie Szczegóły historii.</li>
+<li><strong>anulowana</strong>: przerwano zadanie (np. zatrzymanie aplikacji).</li>
+<li><strong>pominięto</strong>: urlop, święto albo masz już rezerwację na ten dzień.</li>
+</ul></details>
+<details id="urlop"><summary>Jak dodać urlop albo pominąć dzień?</summary>
+<p>W kalendarzu kliknij „+ urlop” na wybranym dniu; automat go pominie. Przycisk pojawia się tylko na dniach, które automat by zarezerwował, a których rezerwacja jeszcze się nie otworzyła (do roku naprzód). Włącz też „Pomijaj święta”, jeśli w dni ustawowo wolne nie chcesz rezerwować.</p></details>
+<details id="blad"><summary>Sprawdź konfigurację pokazuje błąd. Co robić?</summary>
+<ul>
+<li><strong>Ustawienia</strong>: brakuje numeru rejestracyjnego albo parkingu. Uzupełnij je i kliknij „Zapisz”.</li>
+<li><strong>Logowanie do serwisu</strong>: sprawdź <code>ACCOUNT_LOGIN</code> i <code>ACCOUNT_PASSWORD</code> oraz <code>API_DOMAIN</code>; po zmianie uruchom kontener ponownie.</li>
+<li><strong>Pojazd i karta</strong>: albo w serwisie nie ma samochodu z takim numerem rejestracyjnym (dodaj go w aplikacji serwisu albo popraw numer w Ustawieniach), albo na koncie nie ma aktywnej karty płatniczej (dodaj ją w aplikacji serwisu).</li>
+<li><strong>Parking</strong>: sprawdź identyfikator parkingu i to, czy konto ma do niego dostęp.</li>
+<li><strong>Poziom</strong>: wybrany poziom nie występuje na parkingu. Wybierz inny albo „dowolny”.</li>
+<li><strong>Turnstile</strong>: usługa <code>turnstile</code> nie odpowiada. Sprawdź <code>TURNSTILE_URL</code> i czy kontener turnstile działa (<code>docker compose ps</code>).</li>
+</ul></details>
+<details id="komputer"><summary>Czy komputer musi być włączony?</summary>
+<p>Tak. Kontenery SpotKeepera muszą działać w godzinie otwarcia rezerwacji (najlepiej na serwerze lub małym komputerze, który pracuje non stop).</p></details>
+<details id="haslo"><summary>Jak zmienić hasło do panelu?</summary>
+<p>Zmień <code>APP_PASSWORD</code> w <code>docker-compose.yml</code> (min. 8 znaków) i uruchom ponownie: <code>docker compose up -d</code>. Restart wyloguje Cię z panelu.</p></details>
+<details id="aktualizacja"><summary>Jak zaktualizować SpotKeepera?</summary>
+<p>W katalogu z <code>docker-compose.yml</code> uruchom: <code>docker compose pull &amp;&amp; docker compose up -d</code>. Ustawienia i historia zostają w wolumenie z danymi.</p></details>
+<details id="bezpieczenstwo"><summary>Czy to bezpieczne i oficjalne?</summary>
+<p>SpotKeeper jest <strong>nieoficjalnym</strong> klientem, niepowiązanym z operatorem serwisu rezerwacji. Jego użycie może naruszać regulamin serwisu, a konto może zostać zablokowane, więc używasz go na własne ryzyko. Hasło do konta jest zapisane tylko w Twoim <code>docker-compose.yml</code>, a dane aplikacji w Twoim wolumenie. Hasło trafia wyłącznie do serwisu rezerwacji (logowanie). Poza tym aplikacja pyta zewnętrzną usługę (domyślnie api.ipify.org) o Twój publiczny adres IP, chyba że wpiszesz go w Ustawieniach lub wyłączysz wykrywanie (<code>PUBLIC_IP_URL</code>).</p></details>
+</section>
+<p><a href="/{{if not .User}}login{{end}}">{{if .User}}Wróć do panelu{{else}}Wróć do logowania{{end}}</a></p>
+</div>
+{{end}}

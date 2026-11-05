@@ -1,0 +1,10 @@
+data/
+*.db
+*.db-*
+.env
+demo/
+.git
+.github
+*.test
+*.out
+coverage*
