@@ -1,0 +1,33 @@
+# Local SpotKeeper demo: the app against fakeapi (a fake reservation service and turnstile).
+# No real reservations or payments happen. Run from app/: podman-compose -f demo/compose.yml up --build
+services:
+  fakeapi:
+    build:
+      context: ..
+      args:
+        CMD: fakeapi
+    environment:
+      FAKE_TOKEN_DELAY: 2s
+      FAKE_FREE_PLACES: "2"
+      API_DOMAIN: app.example.com
+
+  spotkeeper:
+    build: ..
+    depends_on:
+      - fakeapi
+    environment:
+      TZ: Europe/Warsaw
+      APP_PASSWORD: demo-password
+      API_DOMAIN: app.example.com
+      ACCOUNT_LOGIN: demo@example.com
+      ACCOUNT_PASSWORD: demo
+      API_BASE: http://fakeapi:9000/pc/api
+      TURNSTILE_URL: http://fakeapi:9000/ts
+      PREPARE_LEAD: 1m
+    ports:
+      - "8080:8080"
+    volumes:
+      - demo-data:/data
+
+volumes:
+  demo-data:

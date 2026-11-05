@@ -1,0 +1,22 @@
+{{define "content"}}
+<div class="card">
+<h1>Sprawdź konfigurację</h1>
+<p class="muted">Sprawdzane są ustawienia, hasło konta, samochód i karta, parking oraz bramka Turnstile. Kontrola niczego nie rezerwuje ani nie opłaca.</p>
+{{if not .Available}}<div class="alert err" role="alert">Kontrola jest niedostępna w tej konfiguracji.</div>{{else}}
+{{if .Ran}}
+<ul class="check-steps">
+{{range .Steps}}<li class="{{if .Skipped}}skip{{else if .OK}}ok{{else}}err{{end}}"><strong>{{if .Skipped}}–{{else if .OK}}✓{{else}}✗{{end}} {{.Name}}</strong> <span class="muted">{{.Detail}}</span>{{if .Help}} <a href="{{.Help}}">Zobacz, jak to naprawić</a>{{end}}</li>
+{{end}}</ul>
+{{if .AllOK}}<p class="muted">Konfiguracja poprawna.</p>{{end}}
+{{end}}
+<ul class="check-steps live" id="check-live" data-stream="/check/stream" hidden>
+{{range $i, $n := .StepNames}}<li data-state="pending" data-i="{{$i}}"><span class="st-ic" aria-hidden="true"></span><strong>{{$n}}</strong> <span class="st-detail muted">oczekuje</span></li>
+{{end}}</ul>
+<p id="check-msg" class="muted" role="status" aria-live="polite" hidden></p>
+<form method="post" action="/check" class="form" id="check-form">
+<button class="btn primary" type="submit">{{if .Ran}}Sprawdź ponownie{{else}}Sprawdź{{end}}</button>
+</form>
+{{end}}
+<p><a href="/">Wróć do panelu</a></p>
+</div>
+{{end}}

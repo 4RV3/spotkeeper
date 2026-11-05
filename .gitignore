@@ -1,0 +1,20 @@
+# superlite: dependency, build and cache folders
+.superlite/
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+webapp/data/
+*.db
+.venv/
+session.key
+
+# local secrets
+.env
+
+# keys left in the deploy checkout
+webapp/*.key
+webapp/*.pub
+
+# commit stamped by the deploy script / CI for /admin
+webapp/VERSION
