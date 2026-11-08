@@ -23,7 +23,7 @@
 
 ## Czym jest SpotKeeper
 
-SpotKeeper to samodzielnie hostowany program, który o ustawionej godzinie otwarcia rezerwacji sam rezerwuje i opłaca dla Ciebie miejsce parkingowe w serwisie rezerwacji (jego domenę wpisujesz w `API_DOMAIN`). Działa na jednym koncie w tym serwisie. Rezerwuje całe dni, w wybrane dni tygodnia, z wyprzedzeniem 28 dni.
+SpotKeeper to samodzielnie hostowany program, który o ustawionej godzinie otwarcia rezerwacji sam rezerwuje i opłaca dla Ciebie miejsce parkingowe w serwisie rezerwacji (jego domenę wpisujesz w `API_DOMAIN`, sugerowana to app.pa****sh.io). Działa na jednym koncie w tym serwisie. Rezerwuje całe dni, w wybrane dni tygodnia, z wyprzedzeniem 28 dni.
 
 Obsługujesz go w panelu WWW: kalendarz, historia rezerwacji, urlopy, ustawienia.
 
@@ -98,7 +98,7 @@ ls docker-compose.yml
 Otwórz `docker-compose.yml` w edytorze tekstu (Notatnik, VS Code, `nano`). Zmieniasz trzy wartości. Zaraz na początku pliku jest domena:
 
 ```yaml
-x-domain: &domain "twoja-domena.pl"   # <- wpisz domenę serwisu rezerwacji (bez https://)
+x-domain: &domain "twoja-domena.pl"   # <- wpisz domenę serwisu rezerwacji (bez https://), sugerowana to app.pa****sh.io
 ```
 
 W sekcji `spotkeeper:` → `environment:` są login i hasło:
@@ -111,7 +111,7 @@ W sekcji `spotkeeper:` → `environment:` są login i hasło:
 Po zmianie wygląda to np. tak (wartości są przykładowe, wpisz swoje):
 
 ```yaml
-x-domain: &domain "app.example.com"
+x-domain: &domain "app.pa****sh.io"
 
       ACCOUNT_LOGIN: "jan.kowalski@example.com"
       ACCOUNT_PASSWORD: "MojeHaslo123"
