@@ -21,7 +21,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: v
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
       - run: echo "${GITHUB_REF_NAME}" > app/VERSION
       - uses: docker/build-push-action@v6
         with:
@@ -29,8 +32,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/spotkeeper:${{ steps.v.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/spotkeeper:latest
+            ghcr.io/${{ steps.v.outputs.owner }}/spotkeeper:${{ steps.v.outputs.version }}
+            ghcr.io/${{ steps.v.outputs.owner }}/spotkeeper:latest
           cache-from: type=gha,scope=app
           cache-to: type=gha,scope=app,mode=max
       - uses: docker/build-push-action@v6
@@ -39,7 +42,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/spotkeeper-turnstile:${{ steps.v.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/spotkeeper-turnstile:latest
+            ghcr.io/${{ steps.v.outputs.owner }}/spotkeeper-turnstile:${{ steps.v.outputs.version }}
+            ghcr.io/${{ steps.v.outputs.owner }}/spotkeeper-turnstile:latest
           cache-from: type=gha,scope=turnstile
           cache-to: type=gha,scope=turnstile,mode=max
