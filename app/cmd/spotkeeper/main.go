@@ -92,6 +92,7 @@ func build(cfg config.Config) (*app, error) {
 	}
 	hc := api.NewHTTPClient()
 	pc := api.New(cfg.APIBase, cfg.AppVersion, hc)
+	pc.UserAgent = cfg.UserAgent
 	tok := turnstile.New(cfg.TurnstileURL, cfg.TurnstilePrefix, cfg.MaxTokenAge, hc)
 	prep := account.NewPreparer(pc, account.Static(cfg.Login, cfg.Password), "")
 	// GUI settings are read on every use, so edits apply without a restart.

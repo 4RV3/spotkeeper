@@ -33,10 +33,13 @@ type Config struct {
 	// TurnstilePrefix is the only URL prefix accepted for verification URLs.
 	TurnstilePrefix string
 	AppVersion      string
-	TurnstileURL    string
-	PrepareLead     time.Duration
-	PollInterval    time.Duration
-	MaxTokenAge     time.Duration
+	// UserAgent (USER_AGENT) is sent as the User-Agent of every service API
+	// call; DefaultUserAgent (Chrome on Android) when unset, never Go's own.
+	UserAgent    string
+	TurnstileURL string
+	PrepareLead  time.Duration
+	PollInterval time.Duration
+	MaxTokenAge  time.Duration
 	// TrustedProxies (TRUSTED_PROXIES: IPs or CIDRs, comma-separated) may set
 	// X-Forwarded-For.
 	TrustedProxies []netip.Prefix
@@ -47,6 +50,10 @@ type Config struct {
 	// LogLevel is debug|info|warn|error.
 	LogLevel string
 }
+
+// DefaultUserAgent is the User-Agent sent to the service API when USER_AGENT
+// is unset: Chrome on Android (the mobile app's real one is not in its logs).
+const DefaultUserAgent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36"
 
 // loader reads variables with defaults and remembers the first parse error.
 type loader struct {
@@ -118,6 +125,7 @@ func Load(getenv func(string) string) (Config, error) {
 		DBPath:       l.str("DB_PATH", "/data/spotkeeper.db"),
 		CookieSecure: l.boolean("COOKIE_SECURE", false),
 		AppVersion:   l.str("APP_VERSION", "4.7.1"),
+		UserAgent:    strings.TrimSpace(l.str("USER_AGENT", DefaultUserAgent)),
 		TurnstileURL: l.str("TURNSTILE_URL", "http://turnstile:3099"),
 		PrepareLead:  l.duration("PREPARE_LEAD", 10*time.Minute),
 		PollInterval: l.duration("POLL_INTERVAL", 500*time.Millisecond),

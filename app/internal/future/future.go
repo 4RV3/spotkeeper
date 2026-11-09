@@ -15,9 +15,11 @@ import (
 	"spotkeeper/internal/timeutil"
 )
 
-// startLead is how long before the release the per-user engines start;
-// the engine itself waits for NotBefore and makes no network call earlier.
-const startLead = time.Second
+// startLead is how long before the release the per-user engines start. It
+// covers the engine's warm-up (engine.WarmLead): the mobile app's booking
+// screen calls, sent shortly before the release and bounded by it; the
+// reservation calls themselves wait for NotBefore.
+const startLead = 4 * time.Second
 
 // FutureStore is the persistence needed by the scheduler.
 type FutureStore interface {

@@ -20,9 +20,20 @@ import (
 type API interface {
 	Offers(ctx context.Context, jwt, parkingID string, start, end time.Time) (model.Offers, error)
 	Reserve(ctx context.Context, jwt, spotID string, start, end time.Time, token, vehicleID string) (string, error)
-	PaymentAmount(ctx context.Context, jwt, reservationID string) (float64, error)
+	PaymentAmount(ctx context.Context, jwt, reservationID string) (model.Amount, error)
+	StartPayment(ctx context.Context, jwt, orderID string, amount float64, reservationID string) (string, error)
 	StartCardPayment(ctx context.Context, jwt, cardID string, amount float64, reservationID, ip string) (string, error)
 	PaymentStatus(ctx context.Context, jwt, paymentID string) (int, error)
+}
+
+// ContextAPI is the optional part of the API that repeats the mobile app's
+// surrounding calls: BookingContext when the booking screen opens (sent
+// shortly before the release) and CheckoutContext between picking a spot and
+// booking it (sent while the turnstile token is solved). Their errors never
+// stop a reservation.
+type ContextAPI interface {
+	BookingContext(ctx context.Context, jwt, parkingID string, now time.Time) error
+	CheckoutContext(ctx context.Context, jwt, parkingID, spotID string, start, end time.Time) error
 }
 
 // Tokener mints a solved turnstile token.
@@ -41,6 +52,23 @@ const (
 	tokenBackoff = time.Second
 	apiTries     = 5 // max tries for payment calls
 	apiRetryWait = time.Second
+	// WarmLead is how long before NotBefore BookingContext is sent. The run
+	// waits for it at most until warmMargin before NotBefore; calls still in
+	// flight then finish in the background (never cancelled at the release,
+	// so their pooled connections stay warm). warmTimeout bounds them.
+	WarmLead    = 3 * time.Second
+	warmMargin  = 300 * time.Millisecond
+	warmTimeout = 5 * time.Second
+	// checkoutWait is how long Reserve waits, once the token is ready, for a
+	// still-running CheckoutContext; checkoutTimeout bounds CheckoutContext.
+	checkoutWait    = 300 * time.Millisecond
+	checkoutTimeout = 5 * time.Second
+	// prePayBudget bounds Payments/amount and Payments/start-payment together
+	// (prePayTries each, prePayRetryWait apart), so the card is charged soon
+	// after the booking even when they fail or hang.
+	prePayBudget    = 5 * time.Second
+	prePayTries     = 2
+	prePayRetryWait = 500 * time.Millisecond
 )
 
 // Engine runs one reservation per Run call.
@@ -144,6 +172,33 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // reserves with it.
 func (e *Engine) Run(ctx context.Context, job model.Job) model.Result {
 	st := &runStats{}
+	if cx, ok := e.api.(ContextAPI); ok {
+		if wait := job.NotBefore.Add(-WarmLead).Sub(e.Now()); wait > 0 {
+			if err := e.Sleep(ctx, wait); err != nil {
+				return model.Result{Status: model.StatusCancelled}
+			}
+		}
+		done := make(chan struct{})
+		jwt := job.JWT
+		go func() {
+			defer close(done)
+			wc, cancel := context.WithTimeout(ctx, warmTimeout)
+			defer cancel()
+			if err := cx.BookingContext(wc, jwt, job.ParkingID, e.Now()); err != nil {
+				e.logger().Debug("booking_context_error", "login", job.Login, "day", job.Day, "err", shortErr(err))
+			}
+		}()
+		// a late start does not wait at all
+		if wait := job.NotBefore.Add(-warmMargin).Sub(e.Now()); wait > 0 {
+			t := time.NewTimer(wait)
+			select {
+			case <-done:
+			case <-t.C:
+			case <-ctx.Done():
+			}
+			t.Stop()
+		}
+	}
 	if wait := job.NotBefore.Sub(e.Now()); wait > 0 {
 		if err := e.Sleep(ctx, wait); err != nil {
 			return model.Result{Status: model.StatusCancelled}
@@ -243,6 +298,7 @@ func (e *Engine) run(ctx context.Context, job *model.Job, st *runStats) model.Re
 			return model.Result{Status: model.StatusFailed, Attempts: reserves,
 				Err: "the service did not issue a contextual verification URL"}
 		}
+		checkout := e.checkoutContext(ctx, job, spot.ID)
 		tok, err := e.tok.Token(ctx, url, fmt.Sprintf("%s:%d", runID, attempt))
 		st.minted.Add(1)
 		if err != nil {
@@ -269,6 +325,7 @@ func (e *Engine) run(ctx context.Context, job *model.Job, st *runStats) model.Re
 			continue
 		}
 
+		e.awaitCheckout(ctx, checkout)
 		d0 := e.Now().Sub(st.base)
 		if d0 < 0 {
 			d0 = 0
@@ -320,9 +377,67 @@ func (e *Engine) run(ctx context.Context, job *model.Job, st *runStats) model.Re
 		Err: fmt.Sprintf("Reservation failed after %d attempts", max)}
 }
 
+// checkoutContext starts the API's CheckoutContext for spot in the
+// background; the returned channel closes when it ends (nil without a
+// ContextAPI).
+func (e *Engine) checkoutContext(ctx context.Context, job *model.Job, spotID string) <-chan struct{} {
+	cx, ok := e.api.(ContextAPI)
+	if !ok {
+		return nil
+	}
+	done := make(chan struct{})
+	jwt := job.JWT
+	go func() {
+		defer close(done)
+		cc, cancel := context.WithTimeout(ctx, checkoutTimeout)
+		defer cancel()
+		if err := cx.CheckoutContext(cc, jwt, job.ParkingID, spotID, job.Start, job.End); err != nil {
+			e.logger().Debug("checkout_context_error", "login", job.Login, "day", job.Day, "err", shortErr(err))
+		}
+	}()
+	return done
+}
+
+// awaitCheckout waits up to checkoutWait for a running CheckoutContext, so the
+// booking follows it as in the mobile app.
+func (e *Engine) awaitCheckout(ctx context.Context, done <-chan struct{}) {
+	if done == nil {
+		return
+	}
+	t := time.NewTimer(checkoutWait)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+	case <-ctx.Done():
+	}
+}
+
+// retry calls fn up to apiTries times, apiRetryWait apart, re-logging in on a 401.
+func (e *Engine) retry(ctx context.Context, job *model.Job, st *runStats, fn func(jwt string) error) error {
+	return e.retryN(ctx, apiTries, apiRetryWait, job, st, fn)
+}
+
+// retryN calls fn up to tries times, wait apart, re-logging in on a 401.
+func (e *Engine) retryN(ctx context.Context, tries int, wait time.Duration, job *model.Job, st *runStats, fn func(jwt string) error) error {
+	var err error
+	for try := 0; try < tries; try++ {
+		if try > 0 && e.Sleep(ctx, wait) != nil {
+			break
+		}
+		if err = e.withRelogin(ctx, job, st, fn); err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
 // pay runs under the parent ctx only: the search budget must not cut a
-// payment after a successful reservation. Mirrors the original workflow: fixed amount, status
-// checked immediately and then every PayInterval, PayPolls checks in total.
+// payment after a successful reservation. Mirrors the mobile app: the amount
+// is read from Payments/amount (the configured amount is the fallback when
+// that fails), a payment process is registered with Payments/start-payment,
+// the saved card is charged and the status is then checked immediately and
+// every PayInterval, PayPolls checks in total.
 func (e *Engine) pay(ctx context.Context, job *model.Job, st *runStats, spotID, resID string, attempts int) model.Result {
 	res := model.Result{SpotID: spotID, ReservationID: resID, Attempts: attempts, Status: model.StatusUnconfirmed}
 	amount := e.cfg.PaymentAmount
@@ -334,22 +449,37 @@ func (e *Engine) pay(ctx context.Context, job *model.Job, st *runStats, spotID, 
 	if amount <= 0 {
 		amount = defaultAmount
 	}
-	var payID string
-	var err error
-	// retry: 5 tries, 1 s apart.
-	for try := 0; try < apiTries; try++ {
-		if try > 0 && e.Sleep(ctx, apiRetryWait) != nil {
-			break
-		}
-		err = e.withRelogin(ctx, job, st, func(jwt string) (err error) {
-			payID, err = e.api.StartCardPayment(ctx, jwt, job.CardID, amount, resID, job.IP)
-			return
-		})
-		if err == nil {
-			break
-		}
+	pre, cancelPre := context.WithTimeout(ctx, prePayBudget)
+	defer cancelPre()
+	var amt model.Amount
+	if err := e.retryN(pre, prePayTries, prePayRetryWait, job, st, func(jwt string) (err error) {
+		amt, err = e.api.PaymentAmount(pre, jwt, resID)
+		return
+	}); err != nil {
+		e.logger().Warn("payment_amount_fallback", "login", job.Login, "day", job.Day,
+			"amount", amount, "err", shortErr(err))
+	} else if amt.Free {
+		e.logger().Info("payment_free", "login", job.Login, "day", job.Day, "reservation_id", resID)
+		res.Status = model.StatusPaid
+		return res
+	} else if amt.Total > 0 {
+		amount = amt.Total
 	}
-	if err != nil {
+
+	orderID := newOrderID()
+	if err := e.retryN(pre, prePayTries, prePayRetryWait, job, st, func(jwt string) error {
+		_, err := e.api.StartPayment(pre, jwt, orderID, amount, resID)
+		return err
+	}); err != nil {
+		// the card payment below is still tried: an unpaid reservation is lost
+		e.logger().Warn("start_payment_error", "login", job.Login, "day", job.Day, "err", shortErr(err))
+	}
+
+	var payID string
+	if err := e.retry(ctx, job, st, func(jwt string) (err error) {
+		payID, err = e.api.StartCardPayment(ctx, jwt, job.CardID, amount, resID, job.IP)
+		return
+	}); err != nil {
 		res.Err = "start payment: " + err.Error()
 		return res
 	}
@@ -364,20 +494,10 @@ func (e *Engine) pay(ctx context.Context, job *model.Job, st *runStats, spotID, 
 	}
 	for i := 0; i < polls; i++ {
 		var ps int
-		var err error
-		for try := 0; try < apiTries; try++ {
-			if try > 0 && e.Sleep(ctx, apiRetryWait) != nil {
-				break
-			}
-			err = e.withRelogin(ctx, job, st, func(jwt string) (err error) {
-				ps, err = e.api.PaymentStatus(ctx, jwt, payID)
-				return
-			})
-			if err == nil {
-				break
-			}
-		}
-		if err != nil {
+		if err := e.retry(ctx, job, st, func(jwt string) (err error) {
+			ps, err = e.api.PaymentStatus(ctx, jwt, payID)
+			return
+		}); err != nil {
 			res.Err = "payment status: " + err.Error()
 			return res
 		}
@@ -393,6 +513,16 @@ func (e *Engine) pay(ctx context.Context, job *model.Job, st *runStats, spotID, 
 		}
 	}
 	return res
+}
+
+// newOrderID returns a random version-4 UUID as 32 lowercase hex digits, the
+// orderId format the mobile app sends to Payments/start-payment.
+func newOrderID() string {
+	b := make([]byte, 16)
+	_, _ = crand.Read(b)
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return hex.EncodeToString(b)
 }
 
 // newRunID returns a random hex id for one reservation run.

@@ -17,8 +17,8 @@ import (
 // PC is the subset of the API client used here.
 type PC interface {
 	Login(ctx context.Context, login, password string) (model.Session, error)
-	Vehicles(ctx context.Context, jwt string) ([]model.Vehicle, error)
-	CreditCards(ctx context.Context, jwt string) ([]model.Card, error)
+	Vehicles(ctx context.Context, jwt, parkingID string) ([]model.Vehicle, error)
+	CreditCards(ctx context.Context, jwt, parkingID string) ([]model.Card, error)
 }
 
 // SecretGetter reads stored passwords.
@@ -126,32 +126,53 @@ func normPlate(s string) string {
 	return strings.ToUpper(strings.ReplaceAll(strings.Join(strings.Fields(s), ""), " ", ""))
 }
 
-// resolve finds the vehicle matching plate and the first usable card.
+// resolve finds the vehicle matching plate and the first usable card. With a
+// parking chosen it uses the mobile app's per-parking v2 calls and falls back
+// to the v1 calls when v2 fails or finds nothing.
 func (p *Preparer) resolve(ctx context.Context, jwt, plate string) (vehicleID, cardID string, err error) {
-	vs, err := p.pc.Vehicles(ctx, jwt)
+	parkingID := p.parking()
+	vehicleID, err = p.findVehicle(ctx, jwt, parkingID, plate)
+	if err != nil && parkingID != "" {
+		vehicleID, err = p.findVehicle(ctx, jwt, "", plate)
+	}
 	if err != nil {
-		return "", "", fmt.Errorf("vehicles: %w", err)
+		return "", "", err
+	}
+	cardID, err = p.findCard(ctx, jwt, parkingID)
+	if err != nil && parkingID != "" {
+		cardID, err = p.findCard(ctx, jwt, "")
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return vehicleID, cardID, nil
+}
+
+func (p *Preparer) findVehicle(ctx context.Context, jwt, parkingID, plate string) (string, error) {
+	vs, err := p.pc.Vehicles(ctx, jwt, parkingID)
+	if err != nil {
+		return "", fmt.Errorf("vehicles: %w", err)
 	}
 	want := normPlate(plate)
 	for _, v := range vs {
 		if normPlate(v.Plate) == want {
-			vehicleID = v.ID
-			break
+			return v.ID, nil
 		}
 	}
-	if vehicleID == "" {
-		return "", "", fmt.Errorf("vehicle not found")
-	}
-	cs, err := p.pc.CreditCards(ctx, jwt)
+	return "", fmt.Errorf("vehicle not found")
+}
+
+func (p *Preparer) findCard(ctx context.Context, jwt, parkingID string) (string, error) {
+	cs, err := p.pc.CreditCards(ctx, jwt, parkingID)
 	if err != nil {
-		return "", "", fmt.Errorf("credit cards: %w", err)
+		return "", fmt.Errorf("credit cards: %w", err)
 	}
 	for _, c := range cs {
 		if c.Status == 1 && c.ClientHash != "" {
-			return vehicleID, c.ID, nil
+			return c.ID, nil
 		}
 	}
-	return "", "", fmt.Errorf("no usable card")
+	return "", fmt.Errorf("no usable card")
 }
 
 // Session returns a valid JWT for any service login, using the password

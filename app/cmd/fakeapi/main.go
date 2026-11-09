@@ -69,13 +69,13 @@ func (s *server) serviceAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case p == "Sessions/native":
 		writeJSON(w, http.StatusOK, ok(map[string]any{"jwt": fakeJWT()}))
-	case p == "Vehicles":
+	case p == "Vehicles" || p == "Vehicles/v2":
 		vs := make([]map[string]any, len(plates))
 		for i, pl := range plates {
 			vs[i] = map[string]any{"id": fmt.Sprintf("veh%d", i+1), "licensePlateNumber": pl}
 		}
 		writeJSON(w, http.StatusOK, ok(vs))
-	case p == "Payments/credit-cards":
+	case p == "Payments/credit-cards" || p == "Payments/v2/credit-cards":
 		writeJSON(w, http.StatusOK, ok([]map[string]any{{"id": "card1", "status": 1, "clientHash": "demo"}}))
 	case p == "ParkingOffers/user-parkings-with-parking-offers-overview":
 		writeJSON(w, http.StatusOK, ok(map[string]any{"entries": fakeParkings}))
@@ -86,7 +86,15 @@ func (s *server) serviceAPI(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "ParkingSpots/") && strings.HasSuffix(p, "/reservations") && r.Method == http.MethodPost:
 		writeJSON(w, http.StatusCreated, ok(map[string]any{"id": fmt.Sprintf("res%d", s.seq.Add(1))}))
 	case strings.HasPrefix(p, "Payments/amount/"):
-		writeJSON(w, http.StatusOK, ok(map[string]any{"data": map[string]any{"totalPrice": 15.0}}))
+		writeJSON(w, http.StatusOK, ok(map[string]any{"data": map[string]any{"isFreeOfCharge": false, "price": 15.0, "totalPrice": 15.0}}))
+	case p == "Payments/start-payment":
+		writeJSON(w, http.StatusCreated, ok(map[string]any{"id": fmt.Sprintf("proc%d", s.seq.Add(1)), "data": map[string]any{}}))
+	case p == "Payments/v2/configurations":
+		writeJSON(w, http.StatusOK, ok(map[string]any{"serviceId": "demo", "checkPaymentStatusTimeoutSeconds": 40}))
+	case p == "Parkings/parking-cost":
+		writeJSON(w, http.StatusOK, ok(map[string]any{"price": 15.0, "totalPrice": 15.0, "payableTotalPrice": 15.0}))
+	case p == "Parkings/parking-details" || p == "Parkings/private-parkings/details" || p == "Parkings/reservation-policies":
+		writeJSON(w, http.StatusOK, ok(map[string]any{}))
 	case p == "Payments/start-saved-credit-card-payment":
 		writeJSON(w, http.StatusCreated, ok(map[string]any{"id": fmt.Sprintf("pay%d", s.seq.Add(1))}))
 	case p == "Payments/payment-status":
