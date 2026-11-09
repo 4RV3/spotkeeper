@@ -162,7 +162,7 @@ In the **Ustawienia** card fill in, in order:
 
 1. **Parking.** Pick a parking from the list (it is fetched from the service; you only see parkings your account can access). If the list does not load, expand **Zaawansowane** (Advanced) and enter the parking identifier (GUID, 36 characters) in "Identyfikator parkingu (ręcznie)". A manually entered one takes precedence over the list.
 2. **Booking opening time** ("Godzina otwarcia rezerwacji", HH:MM, Polish time, 11:00 by default). This is when the service opens booking for a new day. Check it in the service's app: see when spots for the day 28 days ahead appear. Enter exactly that time, because SpotKeeper does not read it from the service.
-3. **Payment amount** ("Kwota płatności", PLN, default 15). It must match the spot price at your parking. SpotKeeper does not read the price from the service; it pays the amount you enter with the saved card. Allowed: 0.01 to 1000 (decimal point or comma).
+3. **Payment amount** ("Kwota płatności", PLN, default 15). This is a fallback: after booking SpotKeeper reads the price from the service (as the mobile app does) and pays it; the amount you enter is used only when the service does not return one. Allowed: 0.01 to 1000 (decimal point or comma).
 4. **Registration number.** The same as the car in the service's app (spaces and letter case do not matter).
 5. **Level.** "dowolny" (any) or a specific level of the parking. The level list is fetched from the day with the most free spots. If nothing is free at the moment, the list can be empty. A previously saved level is then kept. The level works as a text filter (case-insensitive). Handicapped, charger and mini-EV spots are always skipped. Among the matching free spots, SpotKeeper picks one at random.
 6. **Booking days.** Tick the weekdays **for which** you want a spot. The day that gets booked is always 28 days after the day the automation runs (e.g. on a Monday the booking opens the day 28 days ahead, which is also a Monday). If you tick nothing, nothing will be booked.
@@ -193,7 +193,7 @@ When all steps show ✓, "Konfiguracja poprawna" (configuration correct) appears
 1. Every day, about 10 minutes before the opening time (`PREPARE_LEAD`), SpotKeeper logs in to the service and prepares the session.
 2. The target day is the day 28 days later. If it falls on a ticked weekday, is not a day off and (with "Skip holidays" on) not a holiday, the program books.
 3. Exactly at the opening time it asks the service for free spots, picks one (skipping handicapped, charger and mini-EV spots; matching the chosen level), solves the Turnstile check through the `turnstile` service and books. It makes up to 10 attempts, at most 7.5 minutes in total. If the service answers twice that you already have a booking for that time, the day gets the status "pominięto" (skipped).
-4. After a successful booking it pays the amount you entered with the saved card (up to 5 tries to start the payment) and checks the status every 2 seconds, up to 20 times.
+4. After a successful booking it does what the mobile app does: reads the reservation price and registers the payment (at most 5 s in total, 2 tries each), then pays with the saved card (up to 5 tries) and checks the status every 2 seconds, up to 20 times.
 
 In the calendar and in the history (the "Ostatnie rezerwacje" table with columns: day, type, status, attempts, spot, details) you will see a status:
 
@@ -320,6 +320,7 @@ You set them in the `environment:` section of the `spotkeeper` service in `docke
 | `PREPARE_LEAD` | no | `10m` | how long before the opening time to prepare the session |
 | `MAX_TOKEN_AGE` | no | `30s` | maximum age of a turnstile token |
 | `APP_VERSION` | no | `4.7.1` | app version sent to the service API (change only if the service requires a newer one) |
+| `USER_AGENT` | no | Chrome on Android (`Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36`) | User-Agent header sent to the service API. You can use the value seen in the mobile app's traffic (e.g. via HTTP Toolkit or mitmproxy) |
 
 The `turnstile` service has its own variables (among others `PORT`, `WORKERS`, `CONTEXT_REQUEST_TIMEOUT_S`); they are described in [turnstile/README.md](turnstile/README.md). You usually do not need to change them.
 

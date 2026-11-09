@@ -15,18 +15,28 @@ type fakePC struct {
 	exp                         time.Time
 	vs                          []model.Vehicle
 	cs                          []model.Card
+	parkings                    []string
+	v2Err                       error // returned by v2 (parkingID != "") calls
 }
 
 func (f *fakePC) Login(_ context.Context, l, p string) (model.Session, error) {
 	f.logins++
 	return model.Session{JWT: "jwt", Exp: f.exp}, nil
 }
-func (f *fakePC) Vehicles(context.Context, string) ([]model.Vehicle, error) {
+func (f *fakePC) Vehicles(_ context.Context, _, parkingID string) ([]model.Vehicle, error) {
 	f.vehCalls++
+	f.parkings = append(f.parkings, parkingID)
+	if parkingID != "" && f.v2Err != nil {
+		return nil, f.v2Err
+	}
 	return f.vs, nil
 }
-func (f *fakePC) CreditCards(context.Context, string) ([]model.Card, error) {
+func (f *fakePC) CreditCards(_ context.Context, _, parkingID string) ([]model.Card, error) {
 	f.cardCalls++
+	f.parkings = append(f.parkings, parkingID)
+	if parkingID != "" && f.v2Err != nil {
+		return nil, f.v2Err
+	}
 	return f.cs, nil
 }
 
@@ -233,5 +243,32 @@ func TestPrepareLookupFailureUsesEmpty(t *testing.T) {
 	j, err := p.Prepare(context.Background(), user, "2026-10-25")
 	if err != nil || j.IP != "" {
 		t.Fatalf("%+v %v", j, err)
+	}
+}
+
+func TestResolvePassesParkingID(t *testing.T) {
+	pc := &fakePC{exp: time.Now().Add(time.Hour),
+		vs: []model.Vehicle{{ID: "v1", Plate: "WX1"}},
+		cs: []model.Card{{ID: "c1", Status: 1, ClientHash: "h"}}}
+	p := NewPreparer(pc, Static("u", "pw"), "P1")
+	if _, err := p.Prepare(context.Background(), model.User{Login: "u", Plate: "WX1", IP: "1.2.3.4"}, "2026-10-25"); err != nil {
+		t.Fatal(err)
+	}
+	if len(pc.parkings) != 2 || pc.parkings[0] != "P1" || pc.parkings[1] != "P1" {
+		t.Fatal(pc.parkings)
+	}
+}
+
+func TestResolveFallsBackToV1(t *testing.T) {
+	pc := &fakePC{exp: time.Now().Add(time.Hour), v2Err: errors.New("v2 down"),
+		vs: []model.Vehicle{{ID: "v1", Plate: "WX1"}},
+		cs: []model.Card{{ID: "c1", Status: 1, ClientHash: "h"}}}
+	p := NewPreparer(pc, Static("u", "pw"), "P1")
+	j, err := p.Prepare(context.Background(), model.User{Login: "u", Plate: "WX1", IP: "1.2.3.4"}, "2026-10-25")
+	if err != nil || j.VehicleID != "v1" || j.CardID != "c1" {
+		t.Fatal(j, err)
+	}
+	if strings.Join(pc.parkings, ",") != "P1,,P1," {
+		t.Fatal(pc.parkings)
 	}
 }

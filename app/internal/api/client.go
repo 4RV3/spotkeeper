@@ -28,6 +28,25 @@ type Client struct {
 	appVersion string
 	hc         *http.Client
 	warsaw     *time.Location
+	// UserAgent, if set, is sent as the User-Agent header of every call.
+	UserAgent string
+}
+
+// params is an ordered query string: keys are sent in the order given, the
+// way the mobile app builds them (url.Values would sort them).
+type params [][2]string
+
+func (p params) encode() string {
+	var b strings.Builder
+	for i, kv := range p {
+		if i > 0 {
+			b.WriteByte('&')
+		}
+		b.WriteString(url.QueryEscape(kv[0]))
+		b.WriteByte('=')
+		b.WriteString(url.QueryEscape(kv[1]))
+	}
+	return b.String()
 }
 
 // New builds a Client. base is e.g. https://app.example.com/api.
@@ -66,10 +85,10 @@ type envelope struct {
 	} `json:"error"`
 }
 
-func (c *Client) do(ctx context.Context, method, path string, q url.Values, jwt string, body, out any) error {
+func (c *Client) do(ctx context.Context, method, path string, q params, jwt string, body, out any) error {
 	u := c.base + "/" + path
 	if len(q) > 0 {
-		u += "?" + q.Encode()
+		u += "?" + q.encode()
 	}
 	var rd io.Reader
 	if body != nil {
@@ -91,6 +110,9 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, jwt 
 	}
 	if jwt != "" {
 		req.Header.Set("Authorization", "Bearer "+jwt)
+	}
+	if c.UserAgent != "" {
+		req.Header.Set("User-Agent", c.UserAgent)
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -156,13 +178,18 @@ func (c *Client) Login(ctx context.Context, login, password string) (model.Sessi
 	return model.Session{JWT: r.JWT, Exp: exp}, nil
 }
 
-// Vehicles lists the user's vehicles.
-func (c *Client) Vehicles(ctx context.Context, jwt string) ([]model.Vehicle, error) {
+// Vehicles lists the user's vehicles. With a parkingID it calls
+// Vehicles/v2?parkingId=, as the mobile app's booking screen does.
+func (c *Client) Vehicles(ctx context.Context, jwt, parkingID string) ([]model.Vehicle, error) {
 	var r []struct {
 		ID    string `json:"id"`
 		Plate string `json:"licensePlateNumber"`
 	}
-	if err := c.do(ctx, "GET", "Vehicles", nil, jwt, nil, &r); err != nil {
+	path, q := "Vehicles", params(nil)
+	if parkingID != "" {
+		path, q = "Vehicles/v2", params{{"parkingId", parkingID}}
+	}
+	if err := c.do(ctx, "GET", path, q, jwt, nil, &r); err != nil {
 		return nil, err
 	}
 	out := make([]model.Vehicle, len(r))
@@ -172,14 +199,19 @@ func (c *Client) Vehicles(ctx context.Context, jwt string) ([]model.Vehicle, err
 	return out, nil
 }
 
-// CreditCards lists saved cards.
-func (c *Client) CreditCards(ctx context.Context, jwt string) ([]model.Card, error) {
+// CreditCards lists saved cards. With a parkingID it calls
+// Payments/v2/credit-cards?parkingId=, as the mobile app's booking screen does.
+func (c *Client) CreditCards(ctx context.Context, jwt, parkingID string) ([]model.Card, error) {
 	var r []struct {
 		ID         string `json:"id"`
 		Status     int    `json:"status"`
 		ClientHash string `json:"clientHash"`
 	}
-	if err := c.do(ctx, "GET", "Payments/credit-cards", nil, jwt, nil, &r); err != nil {
+	path, q := "Payments/credit-cards", params(nil)
+	if parkingID != "" {
+		path, q = "Payments/v2/credit-cards", params{{"parkingId", parkingID}}
+	}
+	if err := c.do(ctx, "GET", path, q, jwt, nil, &r); err != nil {
 		return nil, err
 	}
 	out := make([]model.Card, len(r))
@@ -191,12 +223,12 @@ func (c *Client) CreditCards(ctx context.Context, jwt string) ([]model.Card, err
 
 // Offers lists spots offered within [start, end).
 func (c *Client) Offers(ctx context.Context, jwt, parkingID string, start, end time.Time) (model.Offers, error) {
-	q := url.Values{
-		"ParkingId": {parkingID},
-		"Start":     {start.UTC().Format(timeLayout)},
-		"End":       {end.UTC().Format(timeLayout)},
-		"Page":      {"1"},
-		"PageSize":  {"1000"},
+	q := params{
+		{"ParkingId", parkingID},
+		{"Start", start.UTC().Format(timeLayout)},
+		{"End", end.UTC().Format(timeLayout)},
+		{"Page", "1"},
+		{"PageSize", "1000"},
 	}
 	var r struct {
 		TurnstileURL string `json:"turnstileUrl"`
@@ -220,7 +252,7 @@ func (c *Client) Offers(ctx context.Context, jwt, parkingID string, start, end t
 
 // Timeline returns free spot counts per Warsaw day.
 func (c *Client) Timeline(ctx context.Context, jwt, parkingID string, start time.Time) ([]model.DayFree, error) {
-	q := url.Values{"ParkingId": {parkingID}, "Start": {start.UTC().Format(timeLayout)}}
+	q := params{{"ParkingId", parkingID}, {"Start", start.UTC().Format(timeLayout)}}
 	var r struct {
 		Entries []struct {
 			Day  string `json:"day"`
@@ -241,13 +273,36 @@ func (c *Client) Timeline(ctx context.Context, jwt, parkingID string, start time
 	return out, nil
 }
 
+// Request bodies are structs so the JSON keys keep the mobile app's order.
+type reserveBody struct {
+	Start          string `json:"start"`
+	End            string `json:"end"`
+	TurnstileToken string `json:"turnstileToken"`
+	VehicleID      string `json:"vehicleId"`
+}
+
+type startPaymentBody struct {
+	OrderID           string  `json:"orderId"`
+	Amount            float64 `json:"amount"`
+	PaymentTargetType int     `json:"paymentTargetType"`
+	TargetObjectID    string  `json:"targetObjectId"`
+}
+
+type cardPaymentBody struct {
+	CardID            string  `json:"cardId"`
+	Amount            float64 `json:"amount"`
+	PaymentTargetType int     `json:"paymentTargetType"`
+	TargetObjectID    string  `json:"targetObjectId"`
+	IPAddress         string  `json:"ipAddress"`
+}
+
 // Reserve books a spot and returns the reservation id.
 func (c *Client) Reserve(ctx context.Context, jwt, spotID string, start, end time.Time, token, vehicleID string) (string, error) {
-	body := map[string]string{
-		"start":          start.UTC().Format(timeLayout),
-		"end":            end.UTC().Format(timeLayout),
-		"turnstileToken": token,
-		"vehicleId":      vehicleID,
+	body := reserveBody{
+		Start:          start.UTC().Format(timeLayout),
+		End:            end.UTC().Format(timeLayout),
+		TurnstileToken: token,
+		VehicleID:      vehicleID,
 	}
 	var r struct {
 		ID string `json:"id"`
@@ -258,22 +313,37 @@ func (c *Client) Reserve(ctx context.Context, jwt, spotID string, start, end tim
 	return r.ID, nil
 }
 
-// PaymentAmount returns the total price of a reservation.
-func (c *Client) PaymentAmount(ctx context.Context, jwt, reservationID string) (float64, error) {
+// PaymentAmount returns what a reservation costs (GET Payments/amount/{id}).
+func (c *Client) PaymentAmount(ctx context.Context, jwt, reservationID string) (model.Amount, error) {
 	var r struct {
 		Data struct {
+			Free       bool    `json:"isFreeOfCharge"`
 			TotalPrice float64 `json:"totalPrice"`
 		} `json:"data"`
 	}
 	if err := c.do(ctx, "GET", "Payments/amount/"+url.PathEscape(reservationID), nil, jwt, nil, &r); err != nil {
-		return 0, err
+		return model.Amount{}, err
 	}
-	return r.Data.TotalPrice, nil
+	return model.Amount{Total: r.Data.TotalPrice, Free: r.Data.Free}, nil
+}
+
+// StartPayment registers a payment process for a reservation (POST
+// Payments/start-payment); the mobile app sends it right before paying with
+// a saved card. It returns the process id.
+func (c *Client) StartPayment(ctx context.Context, jwt, orderID string, amount float64, reservationID string) (string, error) {
+	body := startPaymentBody{OrderID: orderID, Amount: amount, PaymentTargetType: 0, TargetObjectID: reservationID}
+	var r struct {
+		ID string `json:"id"`
+	}
+	if err := c.do(ctx, "POST", "Payments/start-payment", nil, jwt, body, &r); err != nil {
+		return "", err
+	}
+	return r.ID, nil
 }
 
 // ParkingsList lists the parkings available to the user.
 func (c *Client) ParkingsList(ctx context.Context, jwt string) ([]model.Parking, error) {
-	q := url.Values{"Page": {"1"}, "PageSize": {"1000"}}
+	q := params{{"Page", "1"}, {"PageSize", "100000"}}
 	var r struct {
 		Entries []struct {
 			ID      string `json:"parkingId"`
@@ -344,13 +414,7 @@ func (c *Client) ParkingLevels(ctx context.Context, jwt, parkingID string, now t
 
 // StartCardPayment pays a reservation with a saved card and returns the payment id.
 func (c *Client) StartCardPayment(ctx context.Context, jwt, cardID string, amount float64, reservationID, ip string) (string, error) {
-	body := map[string]any{
-		"cardId":            cardID,
-		"amount":            amount,
-		"paymentTargetType": 0,
-		"targetObjectId":    reservationID,
-		"ipAddress":         ip,
-	}
+	body := cardPaymentBody{CardID: cardID, Amount: amount, PaymentTargetType: 0, TargetObjectID: reservationID, IPAddress: ip}
 	var r struct {
 		ID string `json:"id"`
 	}
@@ -365,8 +429,65 @@ func (c *Client) PaymentStatus(ctx context.Context, jwt, paymentID string) (int,
 	var r struct {
 		Status int `json:"status"`
 	}
-	if err := c.do(ctx, "GET", "Payments/payment-status", url.Values{"PaymentId": {paymentID}}, jwt, nil, &r); err != nil {
+	if err := c.do(ctx, "GET", "Payments/payment-status", params{{"PaymentId", paymentID}}, jwt, nil, &r); err != nil {
 		return 0, err
 	}
 	return r.Status, nil
+}
+
+// get calls a GET endpoint for its side effect only (the response is checked
+// for success and discarded).
+func (c *Client) get(ctx context.Context, jwt, path string, q params) error {
+	return c.do(ctx, "GET", path, q, jwt, nil, nil)
+}
+
+// parallel runs fns concurrently and returns the first error.
+func parallel(fns ...func() error) error {
+	errs := make(chan error, len(fns))
+	for _, fn := range fns {
+		go func() { errs <- fn() }()
+	}
+	var first error
+	for range fns {
+		if err := <-errs; err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+// BookingContext makes the calls the mobile app sends when the parking's
+// booking screen opens: parking details, private parking details,
+// reservation policies and the day timeline, all at once.
+func (c *Client) BookingContext(ctx context.Context, jwt, parkingID string, now time.Time) error {
+	p := params{{"ParkingId", parkingID}}
+	return parallel(
+		func() error { return c.get(ctx, jwt, "Parkings/parking-details", p) },
+		func() error { return c.get(ctx, jwt, "Parkings/private-parkings/details", p) },
+		func() error { return c.get(ctx, jwt, "Parkings/reservation-policies", p) },
+		func() error {
+			_, err := c.Timeline(ctx, jwt, parkingID, now)
+			return err
+		},
+	)
+}
+
+// CheckoutContext makes the calls the mobile app sends between choosing a
+// spot and booking it: the parking cost for the spot, then vehicles, cards
+// and the payment configuration (requested twice) at once.
+func (c *Client) CheckoutContext(ctx context.Context, jwt, parkingID, spotID string, start, end time.Time) error {
+	if err := c.get(ctx, jwt, "Parkings/parking-cost", params{
+		{"ParkingSpotId", spotID},
+		{"Start", start.UTC().Format(timeLayout)},
+		{"End", end.UTC().Format(timeLayout)},
+	}); err != nil {
+		return err
+	}
+	pq := params{{"parkingId", parkingID}}
+	return parallel(
+		func() error { return c.get(ctx, jwt, "Vehicles/v2", pq) },
+		func() error { return c.get(ctx, jwt, "Payments/v2/credit-cards", pq) },
+		func() error { return c.get(ctx, jwt, "Payments/v2/configurations", pq) },
+		func() error { return c.get(ctx, jwt, "Payments/v2/configurations", pq) },
+	)
 }

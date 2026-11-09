@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,7 +33,7 @@ func TestEnvelopeFalse200(t *testing.T) {
 	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"isSuccess":false,"error":{"code":7,"message":"nope"}}`)
 	})
-	_, err := c.Vehicles(context.Background(), "j")
+	_, err := c.Vehicles(context.Background(), "j", "")
 	var ae *model.APIError
 	if !errors.As(err, &ae) || ae.Code != 7 || ae.HTTPStatus != 200 || ae.Message != "nope" {
 		t.Fatalf("got %#v", err)
@@ -67,9 +68,9 @@ func TestLoginExp(t *testing.T) {
 }
 
 func TestHeaders(t *testing.T) {
-	n := 0
+	var n atomic.Int32
 	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
-		n++
+		n.Add(1)
 		if r.Header.Get("x-pc-mobile-app-version") != "4.7.1" || r.Header.Get("Accept-Language") != "pl" ||
 			r.Header.Get("Accept") != "application/json" {
 			t.Errorf("headers %v for %s", r.Header, r.URL.Path)
@@ -82,8 +83,8 @@ func TestHeaders(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 	c.Login(ctx, "a", "b")
-	c.Vehicles(ctx, "jj")
-	c.CreditCards(ctx, "jj")
+	c.Vehicles(ctx, "jj", "P")
+	c.CreditCards(ctx, "jj", "P")
 	c.Offers(ctx, "jj", "P", now, now)
 	c.Timeline(ctx, "jj", "P", now)
 	c.Reserve(ctx, "jj", "s", now, now, "t", "v")
@@ -91,8 +92,11 @@ func TestHeaders(t *testing.T) {
 	c.ParkingsList(ctx, "jj")
 	c.StartCardPayment(ctx, "jj", "c", 1, "r", "1.1.1.1")
 	c.PaymentStatus(ctx, "jj", "p")
-	if n != 10 {
-		t.Fatalf("calls %d", n)
+	c.StartPayment(ctx, "jj", "o", 1, "r")
+	c.BookingContext(ctx, "jj", "P", now)
+	c.CheckoutContext(ctx, "jj", "P", "s", now, now)
+	if n.Load() != 20 {
+		t.Fatalf("calls %d", n.Load())
 	}
 }
 
@@ -132,11 +136,11 @@ func TestOffersVehiclesCards(t *testing.T) {
 		o.Spots[0] != (model.Spot{ID: "s1", Level: "-1", Handicapped: true, MiniEV: true}) {
 		t.Fatalf("%v %v", o, err)
 	}
-	v, err := c.Vehicles(ctx, "j")
+	v, err := c.Vehicles(ctx, "j", "")
 	if err != nil || len(v) != 1 || v[0] != (model.Vehicle{ID: "v1", Plate: "WX1"}) {
 		t.Fatalf("%v %v", v, err)
 	}
-	cc, err := c.CreditCards(ctx, "j")
+	cc, err := c.CreditCards(ctx, "j", "")
 	if err != nil || len(cc) != 1 || cc[0] != (model.Card{ID: "c1", Status: 1, ClientHash: "h"}) {
 		t.Fatalf("%v %v", cc, err)
 	}
@@ -172,7 +176,7 @@ func TestReservePaymentFlow(t *testing.T) {
 		t.Fatal(id, err)
 	}
 	amt, err := c.PaymentAmount(ctx, "j", "r1")
-	if err != nil || amt != 12.5 {
+	if err != nil || amt != (model.Amount{Total: 12.5}) {
 		t.Fatal(amt, err)
 	}
 	pid, err := c.StartCardPayment(ctx, "j", "c1", 12.5, "r1", "1.2.3.4")
@@ -196,7 +200,7 @@ func TestNewHTTPClient(t *testing.T) {
 func TestParkingsList(t *testing.T) {
 	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/ParkingOffers/user-parkings-with-parking-offers-overview" ||
-			r.URL.Query().Get("Page") != "1" || r.URL.Query().Get("PageSize") != "1000" {
+			r.URL.Query().Get("Page") != "1" || r.URL.Query().Get("PageSize") != "100000" {
 			t.Errorf("request %s", r.URL)
 		}
 		io.WriteString(w, `{"isSuccess":true,"result":{"entries":[

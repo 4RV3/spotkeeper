@@ -31,6 +31,7 @@ func TestDefaults(t *testing.T) {
 		APIBase:         "https://app.example.com/api",
 		TurnstilePrefix: "https://app.example.com/turnstile?",
 		AppVersion:      "4.7.1",
+		UserAgent:       DefaultUserAgent,
 		TurnstileURL:    "http://turnstile:3099",
 		PrepareLead:     10 * time.Minute,
 		PollInterval:    500 * time.Millisecond,
@@ -232,5 +233,18 @@ func TestTurnstilePrefixFromDomain(t *testing.T) {
 	cfg, err := Load(envOf(env))
 	if err != nil || cfg.TurnstilePrefix != "https://svc.example.org/turnstile?" {
 		t.Fatalf("%q %v", cfg.TurnstilePrefix, err)
+	}
+}
+
+func TestUserAgentDefaultIsChromeAndOverridable(t *testing.T) {
+	cfg, _ := Load(envOf(required()))
+	if !strings.Contains(cfg.UserAgent, "Chrome/") || strings.Contains(cfg.UserAgent, "Go-http-client") {
+		t.Fatal(cfg.UserAgent)
+	}
+	env := required()
+	env["USER_AGENT"] = "  okhttp/4.12.0 "
+	cfg, _ = Load(envOf(env))
+	if cfg.UserAgent != "okhttp/4.12.0" {
+		t.Fatal(cfg.UserAgent)
 	}
 }

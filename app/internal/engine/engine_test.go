@@ -29,7 +29,12 @@ type fakeAPI struct {
 	reserveAt []time.Time
 	status    int
 	amountErr error
+	amount    model.Amount
+	amountN   int
 	amounts   []float64
+	startErr  error
+	starts    []string // "orderID amount reservationID" per StartPayment call
+	payCalls  []string // payment call order: amount, start, card
 }
 
 func (f *fakeAPI) Offers(ctx context.Context, jwt, p string, s, e time.Time) (model.Offers, error) {
@@ -48,12 +53,24 @@ func (f *fakeAPI) Reserve(ctx context.Context, jwt, spotID string, s, e time.Tim
 	}
 	return "R1", nil
 }
-func (f *fakeAPI) PaymentAmount(ctx context.Context, jwt, r string) (float64, error) {
-	return 7.5, f.amountErr
+func (f *fakeAPI) PaymentAmount(ctx context.Context, jwt, r string) (model.Amount, error) {
+	f.mu.Lock()
+	f.amountN++
+	f.payCalls = append(f.payCalls, "amount")
+	f.mu.Unlock()
+	return f.amount, f.amountErr
+}
+func (f *fakeAPI) StartPayment(ctx context.Context, jwt, orderID string, a float64, r string) (string, error) {
+	f.mu.Lock()
+	f.starts = append(f.starts, fmt.Sprintf("%s %v %s", orderID, a, r))
+	f.payCalls = append(f.payCalls, "start")
+	f.mu.Unlock()
+	return "S1", f.startErr
 }
 func (f *fakeAPI) StartCardPayment(ctx context.Context, jwt, c string, a float64, r, ip string) (string, error) {
 	f.mu.Lock()
 	f.amounts = append(f.amounts, a)
+	f.payCalls = append(f.payCalls, "card")
 	f.mu.Unlock()
 	return "P1", nil
 }

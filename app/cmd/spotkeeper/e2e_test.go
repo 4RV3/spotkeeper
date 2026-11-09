@@ -34,12 +34,15 @@ func fakeService(t *testing.T) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/api/")
+		if ua := r.Header.Get("User-Agent"); !strings.Contains(ua, "Chrome/") {
+			t.Errorf("%s sent User-Agent %q, want the Chrome default", p, ua)
+		}
 		switch {
 		case p == "Sessions/native":
 			writeJSON(w, ok(map[string]any{"jwt": jwt}))
-		case p == "Vehicles":
+		case p == "Vehicles" || p == "Vehicles/v2":
 			writeJSON(w, ok([]map[string]any{{"id": "veh1", "licensePlateNumber": "WX 12345"}}))
-		case p == "Payments/credit-cards":
+		case p == "Payments/credit-cards" || p == "Payments/v2/credit-cards":
 			writeJSON(w, ok([]map[string]any{{"id": "card1", "status": 1, "clientHash": "h"}}))
 		case p == "ParkingOffers/user-parkings-with-parking-offers-overview":
 			writeJSON(w, ok(map[string]any{"entries": []map[string]any{{
@@ -57,6 +60,11 @@ func fakeService(t *testing.T) *httptest.Server {
 			writeJSON(w, ok(map[string]any{"id": "res1"}))
 		case strings.HasPrefix(p, "Payments/amount/"):
 			writeJSON(w, ok(map[string]any{"data": map[string]any{"totalPrice": 15.0}}))
+		case p == "Payments/start-payment":
+			writeJSON(w, ok(map[string]any{"id": "proc1"}))
+		case p == "Payments/v2/configurations", p == "Parkings/parking-cost", p == "Parkings/parking-details",
+			p == "Parkings/private-parkings/details", p == "Parkings/reservation-policies":
+			writeJSON(w, ok(map[string]any{}))
 		case p == "Payments/start-saved-credit-card-payment":
 			writeJSON(w, ok(map[string]any{"id": "pay1"}))
 		case p == "Payments/payment-status":

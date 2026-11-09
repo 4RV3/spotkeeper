@@ -160,7 +160,7 @@ W karcie **Ustawienia** uzupełnij po kolei:
 
 1. **Parking.** Wybierz parking z listy (lista jest pobierana z serwisu, widzisz tylko parkingi, do których masz dostęp). Jeśli lista się nie wczytuje, rozwiń **Zaawansowane** i wpisz identyfikator parkingu (GUID, 36 znaków) w polu „Identyfikator parkingu (ręcznie)". Wpisany ręcznie ma pierwszeństwo przed listą.
 2. **Godzina otwarcia rezerwacji** (GG:MM, czas polski, domyślnie 11:00). To godzina, o której serwis otwiera rezerwację nowego dnia. Sprawdź ją w aplikacji serwisu: zobacz, o której pojawiają się miejsca na dzień odległy o 28 dni. Wpisz tę godzinę dokładnie, bo SpotKeeper nie pobiera jej z serwisu.
-3. **Kwota płatności** (zł, domyślnie 15). Musi zgadzać się z ceną miejsca na Twoim parkingu. SpotKeeper nie pobiera ceny z serwisu, tylko płaci wpisaną kwotę zapisaną kartą. Dozwolone: od 0,01 do 1000 zł (separator może być kropką albo przecinkiem).
+3. **Kwota płatności** (zł, domyślnie 15). To kwota zapasowa: po rezerwacji SpotKeeper pobiera cenę z serwisu (jak aplikacja mobilna) i płaci nią, a wpisaną kwotę używa tylko wtedy, gdy serwis jej nie poda. Dozwolone: od 0,01 do 1000 zł (separator może być kropką albo przecinkiem).
 4. **Numer rejestracyjny.** Taki sam jak przy samochodzie w aplikacji serwisu (spacje i wielkość liter nie mają znaczenia).
 5. **Poziom.** „dowolny" albo konkretny poziom parkingu. Lista poziomów jest pobierana z dnia, w którym jest najwięcej wolnych miejsc. Jeśli akurat nic nie jest wolne, lista bywa pusta. Zapisany wcześniej poziom zostaje wtedy zachowany. Poziom działa jak filtr tekstowy (wielkość liter nie ma znaczenia). Miejsca dla niepełnosprawnych, z ładowarką i mini-EV są zawsze pomijane. Spośród pasujących wolnych miejsc SpotKeeper losuje jedno.
 6. **Dni rezerwacji.** Zaznacz dni tygodnia, **na które** chcesz mieć miejsce. Dzień, na który rezerwujesz, jest zawsze 28 dni po dniu uruchomienia (np. w poniedziałek rezerwacja otwiera dzień za 28 dni, czyli też poniedziałek). Gdy nic nie zaznaczysz, nic nie będzie rezerwowane.
@@ -191,7 +191,7 @@ Gdy wszystkie kroki mają ✓, pojawia się „Konfiguracja poprawna". Gotowe: S
 1. Co dzień, ok. 10 minut przed godziną otwarcia (`PREPARE_LEAD`), SpotKeeper loguje się do serwisu i przygotowuje sesję.
 2. Dniem docelowym jest dzień 28 dni później. Jeśli wypada w zaznaczonym dniu tygodnia, nie jest urlopem ani (przy włączonym „Pomijaj święta") świętem, program rezerwuje.
 3. Dokładnie o godzinie otwarcia odpytuje serwis o wolne miejsca, wybiera jedno (z pominięciem miejsc dla niepełnosprawnych, z ładowarką i mini-EV; zgodne z wybranym poziomem), rozwiązuje zabezpieczenie Turnstile przez usługę `turnstile` i rezerwuje. Robi do 10 prób, w sumie do 7,5 minuty. Jeśli serwis dwa razy odpowie, że masz już rezerwację na ten czas, dzień dostaje status „pominięto".
-4. Po udanej rezerwacji płaci wpisaną kwotą zapisaną kartą (do 5 prób startu płatności) i sprawdza status co 2 sekundy, do 20 razy.
+4. Po udanej rezerwacji robi to samo co aplikacja mobilna: pobiera cenę rezerwacji i rejestruje płatność (razem najwyżej 5 s, po 2 próby), potem płaci zapisaną kartą (do 5 prób) i sprawdza status co 2 sekundy, do 20 razy.
 
 W kalendarzu i w historii (tabela „Ostatnie rezerwacje", kolumny: dzień, typ, status, próby, miejsce, szczegóły) zobaczysz status:
 
@@ -318,6 +318,7 @@ Ustawiasz je w sekcji `environment:` usługi `spotkeeper` w `docker-compose.yml`
 | `PREPARE_LEAD` | nie | `10m` | ile przed godziną otwarcia przygotować sesję |
 | `MAX_TOKEN_AGE` | nie | `30s` | maksymalny wiek tokenu turnstile |
 | `APP_VERSION` | nie | `4.7.1` | wersja aplikacji wysyłana do API serwisu (zmieniaj tylko, gdy serwis wymaga nowszej) |
+| `USER_AGENT` | nie | Chrome na Androidzie (`Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36`) | nagłówek User-Agent wysyłany do API serwisu. Możesz wpisać wartość podejrzaną w ruchu aplikacji mobilnej (np. przez HTTP Toolkit lub mitmproxy) |
 
 Usługa `turnstile` ma własne zmienne (m.in. `PORT`, `WORKERS`, `CONTEXT_REQUEST_TIMEOUT_S`); opisuje je [turnstile/README.md](turnstile/README.md). Zwykle nie musisz ich zmieniać.
 

@@ -25,6 +25,12 @@ type Card struct {
 	ClientHash string
 }
 
+// Amount is what a reservation costs, per Payments/amount.
+type Amount struct {
+	Total float64
+	Free  bool
+}
+
 // Spot is a parking spot offered for reservation.
 type Spot struct {
 	ID          string
