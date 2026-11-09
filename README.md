@@ -13,7 +13,7 @@ SpotKeeper to samodzielnie hostowany program, który o godzinie otwarcia rezerwa
 **1. Utwórz folder `spotkeeper` i zapisz w nim plik `docker-compose.yml`.** Zmień tylko oznaczone wartości:
 
 ```yaml
-x-domain: &domain "app.example.com"     # <- domena serwisu (sam host, bez https://)
+x-domain: &domain "app.example.com"     # <- domena serwisu (sam host, bez https://), sugerowana to app.pa****sh.io
 
 services:
   spotkeeper:
