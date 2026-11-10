@@ -186,23 +186,36 @@ func TestNotBeforeIsRelease(t *testing.T) {
 	}
 }
 
-func TestLoopRunsTodayInsidePrepareWindow(t *testing.T) {
-	st := &fakeStore{users: users("a")}
-	r := &fakeRun{}
-	f := newF(st, fakePrep{}, r, &fakeNotify{})
-	now := time.Date(2026, 10, 24, 8, 55, 0, 0, time.UTC) // 10:55 Warsaw, release 11:00
-	f.Now = func() time.Time { return now }
+// fakeClock drives Loop: Sleep advances the wall clock by the requested time
+// (plus extra[i] on the i-th call, a host suspend) and stops the loop after
+// stopAfter runs.
+type fakeClock struct {
+	now    time.Time
+	sleeps []time.Duration
+	extra  map[int]time.Duration
+}
+
+func (c *fakeClock) attach(f *Future, r *fakeRun, stopAfter int) context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
-	n := 0
+	f.Now = func() time.Time { return c.now }
 	f.Sleep = func(ctx context.Context, d time.Duration) error {
-		n++
-		if n >= 3 {
+		c.sleeps = append(c.sleeps, d)
+		c.now = c.now.Add(d + c.extra[len(c.sleeps)-1])
+		if len(r.jobs) >= stopAfter || len(c.sleeps) > 100000 {
 			cancel()
 			return ctx.Err()
 		}
 		return nil
 	}
-	_ = f.Loop(ctx)
+	return ctx
+}
+
+func TestLoopRunsTodayInsidePrepareWindow(t *testing.T) {
+	st := &fakeStore{users: users("a")}
+	r := &fakeRun{}
+	f := newF(st, fakePrep{}, r, &fakeNotify{})
+	c := &fakeClock{now: time.Date(2026, 10, 24, 8, 55, 0, 0, time.UTC)} // 10:55 Warsaw, release 11:00
+	_ = f.Loop(c.attach(f, r, 1))
 	if len(r.jobs) == 0 || r.jobs[0].Day != "2026-11-21" {
 		t.Fatalf("jobs %+v", r.jobs)
 	}
@@ -212,25 +225,48 @@ func TestLoopSleepsThenRuns(t *testing.T) {
 	st := &fakeStore{users: users("a")}
 	r := &fakeRun{}
 	f := newF(st, fakePrep{}, r, &fakeNotify{})
-	now := time.Date(2026, 10, 24, 6, 0, 0, 0, time.UTC) // 08:00 Warsaw
-	f.Now = func() time.Time { return now }
-	ctx, cancel := context.WithCancel(context.Background())
-	var sleeps []time.Duration
-	f.Sleep = func(ctx context.Context, d time.Duration) error {
-		sleeps = append(sleeps, d)
-		if len(sleeps) >= 3 {
-			cancel()
-			return ctx.Err()
+	c := &fakeClock{now: time.Date(2026, 10, 24, 6, 0, 0, 0, time.UTC)} // 08:00 Warsaw
+	_ = f.Loop(c.attach(f, r, 1))
+	if len(r.jobs) != 1 || r.jobs[0].Day != "2026-11-21" {
+		t.Fatalf("jobs %+v", r.jobs)
+	}
+	// release 09:00Z, lead 10m: 2h50m of waiting, in chunks of at most wakeChunk
+	var total time.Duration
+	for i, d := range c.sleeps {
+		if d > wakeChunk {
+			t.Fatalf("sleep %d is %v > %v", i, d, wakeChunk)
 		}
-		return nil
+		if total += d; total >= 2*time.Hour+50*time.Minute {
+			break
+		}
 	}
-	_ = f.Loop(ctx)
-	// release 09:00Z, lead 10m -> first sleep 2h50m
-	if len(sleeps) == 0 || sleeps[0] != 2*time.Hour+50*time.Minute {
-		t.Fatalf("sleeps %v", sleeps)
+	if total != 2*time.Hour+50*time.Minute {
+		t.Fatalf("waited %v before preparing", total)
 	}
-	if len(r.jobs) != 1 {
-		t.Fatalf("runs %d", len(r.jobs))
+}
+
+// Regression: the host suspended over the release (2026-11-10, 10:48-11:08).
+// A single monotonic timer woke hours late and the day was never tried; the
+// loop must re-check the wall clock and run the missed release right after
+// the resume, logging that it is late.
+func TestLoopRunsMissedReleaseAfterSuspend(t *testing.T) {
+	st := &fakeStore{users: users("a")}
+	r := &fakeRun{}
+	f := newF(st, fakePrep{}, r, &fakeNotify{})
+	var buf bytes.Buffer
+	f.Log = slog.New(slog.NewJSONHandler(&buf, nil))
+	start := time.Date(2026, 11, 9, 15, 34, 0, 0, time.UTC) // 16:34 Warsaw, day before
+	// suspended for 18h20m during the first wait: resumes 11:08:50 Warsaw
+	c := &fakeClock{now: start, extra: map[int]time.Duration{0: 18*time.Hour + 34*time.Minute + 20*time.Second}}
+	_ = f.Loop(c.attach(f, r, 1))
+	if len(r.jobs) != 1 || r.jobs[0].Day != "2026-12-08" {
+		t.Fatalf("jobs %+v", r.jobs)
+	}
+	if !strings.Contains(buf.String(), `"msg":"future_run_late"`) {
+		t.Fatalf("no future_run_late log:\n%s", buf.String())
+	}
+	if len(c.sleeps) > 2 {
+		t.Fatalf("ran only after %d sleeps %v", len(c.sleeps), c.sleeps[:3])
 	}
 }
 
@@ -268,20 +304,12 @@ func TestLoopPicksUpNewReleaseTime(t *testing.T) {
 	f := newF(st, fakePrep{}, r, &fakeNotify{})
 	rel := "11:00"
 	f.cfg.ReleaseFunc = func() string { return rel }
-	now := time.Date(2026, 10, 24, 6, 0, 0, 0, time.UTC) // 08:00 Warsaw
-	f.Now = func() time.Time { return now }
-	ctx, cancel := context.WithCancel(context.Background())
-	var sleeps []time.Duration
+	c := &fakeClock{now: time.Date(2026, 10, 24, 6, 0, 0, 0, time.UTC)} // 08:00 Warsaw
+	ctx := c.attach(f, r, 2)
+	inner := f.Sleep
 	f.Sleep = func(ctx context.Context, d time.Duration) error {
-		sleeps = append(sleeps, d)
-		if len(sleeps) == 1 {
-			rel = "10:00" // changed before the next iteration
-		}
-		if len(sleeps) >= 5 {
-			cancel()
-			return ctx.Err()
-		}
-		return nil
+		rel = "10:00" // changed while waiting: the first release is already fixed at 11:00
+		return inner(ctx, d)
 	}
 	_ = f.Loop(ctx)
 	if len(r.jobs) < 2 {

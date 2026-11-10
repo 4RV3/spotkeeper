@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -72,6 +73,8 @@ func (s *Server) parkings(r *http.Request) ([]model.Parking, error) {
 	c = parkingsCache{list: list, err: err, at: now, ttl: parkingsTTL}
 	if err != nil {
 		c.ttl = parkingsErrTTL
+		// the panel shows only a generic message; keep the cause in the log
+		slog.Warn("parkings_list_failed", "err", err.Error())
 	}
 	s.cacheMu.Lock()
 	s.parkingsC = c
