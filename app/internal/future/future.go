@@ -115,6 +115,26 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// wakeChunk caps one timer in sleepUntil. Go timers run on the monotonic
+// clock, which stops while the host is suspended; re-checking the wall clock
+// at least this often bounds how late a wake-up can be after a resume.
+const wakeChunk = 30 * time.Second
+
+// sleepUntil sleeps until the wall-clock instant at, in chunks of at most
+// wakeChunk, so time the host spends suspended counts toward the wait.
+func (f *Future) sleepUntil(ctx context.Context, at time.Time) error {
+	at = at.Round(0) // drop any monotonic reading: compare wall clocks only
+	for {
+		d := at.Sub(f.Now().Round(0))
+		if d <= 0 {
+			return ctx.Err()
+		}
+		if err := f.Sleep(ctx, min(d, wakeChunk)); err != nil {
+			return err
+		}
+	}
+}
+
 // RunDay prepares and runs all reservations for the release at time release.
 func (f *Future) RunDay(ctx context.Context, release time.Time) error {
 	day := timeutil.AddDays(timeutil.Today(release), f.cfg.AheadDays)
@@ -132,6 +152,10 @@ func (f *Future) RunDay(ctx context.Context, release time.Time) error {
 	}
 	began := f.Now()
 	f.logger().Info("future_run_start", "release", release.Format(time.RFC3339), "day", day, "users", len(users))
+	if late := began.Round(0).Sub(release.Round(0)); late > 0 {
+		// e.g. the host was suspended over the release: still try, late
+		f.logger().Warn("future_run_late", "day", day, "late_ms", late.Milliseconds())
+	}
 	var paid, unconfirmed, failed, already atomic.Int64
 
 	type prepared struct {
@@ -161,7 +185,7 @@ func (f *Future) RunDay(ctx context.Context, release time.Time) error {
 	}
 	wg.Wait()
 
-	_ = f.Sleep(ctx, release.Add(-startLead).Sub(f.Now()))
+	_ = f.sleepUntil(ctx, release.Add(-startLead))
 	if ctx.Err() != nil {
 		return nil
 	}
@@ -267,7 +291,7 @@ func (f *Future) Loop(ctx context.Context) error {
 				return err
 			}
 		}
-		if err := f.Sleep(ctx, release.Add(-f.cfg.PrepareLead).Sub(now)); err != nil {
+		if err := f.sleepUntil(ctx, release.Add(-f.cfg.PrepareLead)); err != nil {
 			return nil
 		}
 		last = release
