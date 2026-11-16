@@ -473,3 +473,37 @@ func TestSavedToast(t *testing.T) {
 		t.Fatal("error must be an inline banner, not a toast")
 	}
 }
+
+func TestSaveSettingsAheadDays(t *testing.T) {
+	e := newDEnv(t)
+	for _, bad := range []string{"0", "91", "-1", "abc", "1.5", ""} {
+		w := e.do("POST", "/settings", settingsForm(url.Values{"ahead_days": {bad}}))
+		if !strings.Contains(w.Header().Get("Location"), "invalid") || e.st.settings.AheadDays != 0 {
+			t.Fatal("accepted", bad)
+		}
+	}
+	w := e.do("POST", "/settings", settingsForm(url.Values{"ahead_days": {"14"}}))
+	if !strings.Contains(w.Header().Get("Location"), "saved") || e.st.settings.AheadDays != 14 {
+		t.Fatal(w.Header(), e.st.settings)
+	}
+	if b := get(e, "/"); !strings.Contains(b, `id="ahead_days" name="ahead_days" value="14"`) {
+		t.Fatal("ahead_days field not rendered")
+	}
+}
+
+// The next-run panel and the preview data follow the stored range.
+func TestNextRunUsesAheadDays(t *testing.T) {
+	e := newDEnv(t)
+	e.st.settings.ReleaseTime = "10:30"
+	e.st.settings.AheadDays = 3
+	// 06:00Z = 08:00 Warsaw: today's 10:30 release is still ahead, target 24.10 + 3.
+	e.srv.d.Now = func() time.Time { return time.Date(2026, 10, 24, 6, 0, 0, 0, time.UTC) }
+	e.st.users[testLogin] = model.User{Login: testLogin, Plate: "X", Schedule: "1,2,3,4,5,6,7", Active: true}
+	if got := e.srv.nextRelease(e.srv.d.Now(), map[string]bool{"1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true}, nil); got.Target != "2026-10-27" {
+		t.Fatal(got)
+	}
+	b := get(e, "/")
+	if !strings.Contains(b, `data-today="2026-10-24" data-now="08:00"`) {
+		t.Fatal("preview data missing")
+	}
+}

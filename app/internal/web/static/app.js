@@ -103,6 +103,47 @@
     load(level.getAttribute('data-current') || '');
   })();
 
+  // Reservation range preview: which day the next release would book.
+  (function () {
+    var out = document.getElementById('ahead-preview');
+    var ahead = document.getElementById('ahead_days');
+    var rel = document.getElementById('release_time');
+    if (!out || !ahead || !rel) return;
+    var form = ahead.form;
+    var wd = ['Nd', 'Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So'];
+    var p = (out.getAttribute('data-today') || '').split('-');
+    var nowHM = out.getAttribute('data-now') || '';
+    if (p.length !== 3) return;
+    // UTC dates: the server's Warsaw "today" shifted by whole days, no DST issues.
+    function day(offset) { return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + offset)); }
+    function fmt(d) {
+      return wd[d.getUTCDay()] + ' ' + ('0' + d.getUTCDate()).slice(-2) + '.' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '.' + d.getUTCFullYear();
+    }
+    function iso(d) { return (d.getUTCDay() + 6) % 7 + 1; } // 1 = Mon ... 7 = Sun
+    function update() {
+      var n = parseInt(ahead.value, 10);
+      var t = rel.value.trim();
+      if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(t)) { out.textContent = 'Wpisz godzinę otwarcia w formacie GG:MM, by zobaczyć podgląd.'; return; }
+      if (!(n >= 1 && n <= 90) || String(n) !== ahead.value.trim()) { out.textContent = 'Zasięg: liczba dni od 1 do 90.'; return; }
+      var start = nowHM < t ? 0 : 1;
+      var runDay = day(start), target = day(start + n);
+      var txt = 'Najbliższe uruchomienie: ' + fmt(runDay) + ' o ' + t + ' → rezerwacja na ' + fmt(target) + '.';
+      var box = form && form.querySelector('input[name="day"][value="' + iso(target) + '"]');
+      if (box && !box.checked) {
+        // find the first run whose target weekday is selected
+        for (var i = 1; i < 7; i++) {
+          var tg = day(start + i + n), b = form.querySelector('input[name="day"][value="' + iso(tg) + '"]');
+          if (b && b.checked) { txt += ' Ten dzień tygodnia nie jest zaznaczony, więc pierwsza rezerwacja: ' + fmt(day(start + i)) + ' o ' + t + ' → ' + fmt(tg) + '.'; break; }
+        }
+        if (i === 7) txt += ' Żaden dzień tygodnia nie jest zaznaczony.';
+      }
+      out.textContent = txt;
+    }
+    [ahead, rel].forEach(function (el) { el.addEventListener('input', update); });
+    if (form) form.addEventListener('change', update);
+    update();
+  })();
+
   // Live configuration check: POST /check/stream returns NDJSON progress lines.
   (function () {
     var form = document.getElementById('check-form');

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"spotkeeper/internal/model"
+	"spotkeeper/internal/store"
 	"spotkeeper/internal/timeutil"
 )
 
@@ -23,11 +24,12 @@ var flashTexts = map[string]string{
 	"saved":           "Zapisano ustawienia.",
 	"off_added":       "Zapisano urlop. Automat pominie ten dzień.",
 	"off_removed":     "Usunięto urlop. Ten dzień wraca do harmonogramu automatu.",
-	"off_range":       "Urlop można zaznaczyć tylko na dni, których automat jeszcze nie rozpoczął (dalej niż 4 tygodnie, do roku naprzód).",
+	"off_range":       "Urlop można zaznaczyć tylko na dni, których automat jeszcze nie rozpoczął (dalej niż zasięg rezerwacji, do roku naprzód).",
 	"off_bad":         "Nieprawidłowa data. Wybierz dzień z kalendarza.",
 	"invalid":         "Nie zapisano ustawień: formularz zawiera nieprawidłowe dane.",
 	"invalid_parking": "Nieprawidłowy identyfikator parkingu (oczekiwany format GUID).",
 	"invalid_release": "Nieprawidłowa godzina (format GG:MM).",
+	"invalid_ahead":   "Zasięg rezerwacji musi być liczbą dni od 1 do 90.",
 	"invalid_amount":  "Kwota musi być większa od 0 i nie większa niż 1000 zł.",
 	"error":           "Wystąpił błąd. Spróbuj ponownie.",
 }
@@ -138,7 +140,7 @@ func (s *Server) monthCells(u model.User, sched, daysOff map[string]bool, skippe
 // today+AheadDays are only published at the release time, so before then
 // the limit is one day earlier.
 func (s *Server) lastBookedDay(now time.Time) string {
-	return timeutil.LastMonitorDay(now, s.releaseTime(), s.d.AheadDays)
+	return timeutil.LastMonitorDay(now, s.releaseTime(), s.aheadDays())
 }
 
 type nextRun struct {
@@ -155,13 +157,14 @@ type nextRun struct {
 func (s *Server) nextRelease(now time.Time, sched map[string]bool, skip func(day string) bool) nextRun {
 	today := timeutil.Today(now)
 	release := s.releaseTime()
+	ahead := s.aheadDays()
 	for i := 0; i <= 7; i++ {
 		day := timeutil.AddDays(today, i)
 		at, err := timeutil.At(day, release)
 		if err != nil || !at.After(now) {
 			continue
 		}
-		target := timeutil.AddDays(day, s.d.AheadDays)
+		target := timeutil.AddDays(day, ahead)
 		wd := timeutil.Weekday(target)
 		if sched[strconv.Itoa(wd)] && (skip == nil || !skip(target)) {
 			return nextRun{true, at, at.In(timeutil.Warsaw).Format("02.01.2006 15:04"), target, weekdayShort[wd-1]}
@@ -326,6 +329,8 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, login string)
 		"FlashOK":     flashOK,
 		"FlashErr":    flashErr,
 		"Release":     s.releaseTime(),
+		"NowDay":      today,
+		"NowHM":       now.In(timeutil.Warsaw).Format("15:04"),
 		"App":         app,
 		"Amount":      strconv.FormatFloat(app.PaymentAmount, 'f', -1, 64),
 		"NoParking":   noParking,
@@ -394,6 +399,14 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request, login stri
 			return
 		}
 		app.ReleaseTime = rt
+	}
+	if r.PostForm.Has("ahead_days") {
+		n, err := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("ahead_days")))
+		if err != nil || n < store.MinAheadDays || n > store.MaxAheadDays {
+			redirectMsg(w, r, "invalid_ahead")
+			return
+		}
+		app.AheadDays = n
 	}
 	if r.PostForm.Has("amount") {
 		a, err := strconv.ParseFloat(strings.ReplaceAll(strings.TrimSpace(r.PostForm.Get("amount")), ",", "."), 64)

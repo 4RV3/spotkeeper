@@ -322,3 +322,18 @@ func TestLoopPicksUpNewReleaseTime(t *testing.T) {
 		t.Fatalf("second release %v, want 10:00 Warsaw next day", nb)
 	}
 }
+
+// AheadFunc (the panel setting) decides the target day of a run.
+func TestRunDayUsesAheadFunc(t *testing.T) {
+	r := &fakeRun{}
+	f := NewFuture(&fakeStore{users: users("a")}, fakePrep{}, r, &fakeNotify{}, FutureConfig{ReleaseTime: "11:00",
+		PrepareLead: 10 * time.Minute, AheadDays: 28, AheadFunc: func() int { return 3 }})
+	release := time.Now().Add(100 * time.Millisecond)
+	if err := f.RunDay(context.Background(), release); err != nil {
+		t.Fatal(err)
+	}
+	want := timeutil.AddDays(timeutil.Today(release), 3)
+	if len(r.jobs) != 1 || r.jobs[0].Day != want {
+		t.Fatalf("want day %s, got %+v", want, r.jobs)
+	}
+}

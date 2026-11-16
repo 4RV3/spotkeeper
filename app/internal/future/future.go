@@ -51,6 +51,8 @@ type FutureConfig struct {
 	ReleaseFunc func() string
 	PrepareLead time.Duration
 	AheadDays   int
+	// AheadFunc, if set and positive, overrides AheadDays and is read on every run.
+	AheadFunc func() int
 }
 
 // Future runs the daily release.
@@ -86,6 +88,15 @@ func (f *Future) releaseTime() string {
 		}
 	}
 	return f.cfg.ReleaseTime
+}
+
+func (f *Future) aheadDays() int {
+	if f.cfg.AheadFunc != nil {
+		if n := f.cfg.AheadFunc(); n > 0 {
+			return n
+		}
+	}
+	return f.cfg.AheadDays
 }
 
 func (f *Future) logger() *slog.Logger {
@@ -137,7 +148,7 @@ func (f *Future) sleepUntil(ctx context.Context, at time.Time) error {
 
 // RunDay prepares and runs all reservations for the release at time release.
 func (f *Future) RunDay(ctx context.Context, release time.Time) error {
-	day := timeutil.AddDays(timeutil.Today(release), f.cfg.AheadDays)
+	day := timeutil.AddDays(timeutil.Today(release), f.aheadDays())
 	all, err := f.st.UsersForWeekday(timeutil.Weekday(day))
 	if err != nil {
 		return err

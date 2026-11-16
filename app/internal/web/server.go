@@ -126,6 +126,15 @@ func (s *Server) releaseTime() string {
 	return "11:00"
 }
 
+// aheadDays is how many days after the release day the reservation targets:
+// the stored setting, Deps.AheadDays when it cannot be read.
+func (s *Server) aheadDays() int {
+	if a, err := s.d.Store.AppSettings(); err == nil && a.AheadDays > 0 {
+		return a.AheadDays
+	}
+	return s.d.AheadDays
+}
+
 // dashboardRoutes is set by the dashboard file to register its routes.
 var dashboardRoutes func(s *Server, mux *http.ServeMux)
 

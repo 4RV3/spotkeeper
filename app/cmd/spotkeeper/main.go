@@ -137,7 +137,8 @@ func build(cfg config.Config) (*app, error) {
 	fut := future.NewFuture(st, prep, eng, results, future.FutureConfig{
 		ReleaseFunc: releaseTime,
 		PrepareLead: cfg.PrepareLead,
-		AheadDays:   28,
+		AheadDays:   store.DefaultAheadDays,
+		AheadFunc:   func() int { return settings().AheadDays },
 	})
 	runCheck := func(ctx context.Context, progress func(int, string, bool, check.Step)) []check.Step {
 		return check.Run(ctx, check.Deps{
@@ -159,7 +160,7 @@ func build(cfg config.Config) (*app, error) {
 		SessionSecret:  sessionSecret(key, cfg.AppPassword),
 		CookieSecure:   cfg.CookieSecure,
 		Now:            time.Now,
-		AheadDays:      28,
+		AheadDays:      store.DefaultAheadDays,
 		TrustedProxies: cfg.TrustedProxies,
 		Parkings: func(ctx context.Context) ([]model.Parking, error) {
 			jwt, err := prep.Session(ctx, cfg.Login)

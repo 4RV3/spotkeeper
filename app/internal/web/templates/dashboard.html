@@ -102,6 +102,9 @@
 {{if .ParkingsErr}}<p class="muted hint">Nie udało się pobrać listy parkingów</p>{{end}}
 <label for="release_time">Godzina otwarcia rezerwacji (GG:MM)</label>
 <input type="text" id="release_time" name="release_time" value="{{.App.ReleaseTime}}" placeholder="GG:MM" maxlength="5">
+<label for="ahead_days">Zasięg rezerwacji (dni naprzód)</label>
+<input type="number" id="ahead_days" name="ahead_days" value="{{.App.AheadDays}}" min="1" max="90" step="1" inputmode="numeric">
+<p id="ahead-preview" class="muted hint" data-today="{{.NowDay}}" data-now="{{.NowHM}}" aria-live="polite">O godzinie otwarcia automat rezerwuje dzień przypadający tyle dni później.</p>
 <label for="amount">Kwota płatności (zł)</label>
 <input type="text" id="amount" name="amount" value="{{.Amount}}" inputmode="decimal">
 <h3>Samochód</h3>

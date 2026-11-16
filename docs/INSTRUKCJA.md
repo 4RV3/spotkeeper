@@ -159,11 +159,11 @@ Po zalogowaniu zobaczysz stan, kalendarz, historię rezerwacji i kartę **Ustawi
 W karcie **Ustawienia** uzupełnij po kolei:
 
 1. **Parking.** Wybierz parking z listy (lista jest pobierana z serwisu, widzisz tylko parkingi, do których masz dostęp). Jeśli lista się nie wczytuje, rozwiń **Zaawansowane** i wpisz identyfikator parkingu (GUID, 36 znaków) w polu „Identyfikator parkingu (ręcznie)". Wpisany ręcznie ma pierwszeństwo przed listą.
-2. **Godzina otwarcia rezerwacji** (GG:MM, czas polski, domyślnie 11:00). To godzina, o której serwis otwiera rezerwację nowego dnia. Sprawdź ją w aplikacji serwisu: zobacz, o której pojawiają się miejsca na dzień odległy o 28 dni. Wpisz tę godzinę dokładnie, bo SpotKeeper nie pobiera jej z serwisu.
+2. **Godzina otwarcia rezerwacji** (GG:MM, czas polski, domyślnie 11:00). To godzina, o której serwis otwiera rezerwację nowego dnia. Sprawdź ją w aplikacji serwisu: zobacz, o której pojawiają się miejsca na dzień odległy o 28 dni. Wpisz tę godzinę dokładnie, bo SpotKeeper nie pobiera jej z serwisu. Pod nią ustawiasz **Zasięg rezerwacji** (1–90 dni, domyślnie 28): ile dni po dniu uruchomienia przypada rezerwowany dzień. Pod polem od razu widać podgląd: kiedy będzie najbliższe uruchomienie i na jaki dzień.
 3. **Kwota płatności** (zł, domyślnie 15). To kwota zapasowa: po rezerwacji SpotKeeper pobiera cenę z serwisu (jak aplikacja mobilna) i płaci nią, a wpisaną kwotę używa tylko wtedy, gdy serwis jej nie poda. Dozwolone: od 0,01 do 1000 zł (separator może być kropką albo przecinkiem).
 4. **Numer rejestracyjny.** Taki sam jak przy samochodzie w aplikacji serwisu (spacje i wielkość liter nie mają znaczenia).
 5. **Poziom.** „dowolny" albo konkretny poziom parkingu. Lista poziomów jest pobierana z dnia, w którym jest najwięcej wolnych miejsc. Jeśli akurat nic nie jest wolne, lista bywa pusta. Zapisany wcześniej poziom zostaje wtedy zachowany. Poziom działa jak filtr tekstowy (wielkość liter nie ma znaczenia). Miejsca dla niepełnosprawnych, z ładowarką i mini-EV są zawsze pomijane. Spośród pasujących wolnych miejsc SpotKeeper losuje jedno.
-6. **Dni rezerwacji.** Zaznacz dni tygodnia, **na które** chcesz mieć miejsce. Dzień, na który rezerwujesz, jest zawsze 28 dni po dniu uruchomienia (np. w poniedziałek rezerwacja otwiera dzień za 28 dni, czyli też poniedziałek). Gdy nic nie zaznaczysz, nic nie będzie rezerwowane.
+6. **Dni rezerwacji.** Zaznacz dni tygodnia, **na które** chcesz mieć miejsce. Dzień, na który rezerwujesz, przypada tyle dni po dniu uruchomienia, ile wynosi zasięg rezerwacji (przy domyślnych 28 dniach w poniedziałek rezerwacja otwiera dzień za 28 dni, czyli też poniedziałek). Gdy nic nie zaznaczysz, nic nie będzie rezerwowane.
 7. **Aktywne.** Włącznik automatu. Po pierwszym uruchomieniu jest włączony.
 8. **Pomijaj święta.** Gdy włączone, w polskie dni ustawowo wolne automat nie rezerwuje.
 9. **Urlopy.** W kalendarzu kliknij „+ urlop" na dniu, który ma zostać pominięty (usuwasz kliknięciem „× urlop"). Przycisk jest tylko na dniach, które automat by zarezerwował i których rezerwacja jeszcze się nie otworzyła (do roku naprzód).
@@ -189,7 +189,7 @@ Gdy wszystkie kroki mają ✓, pojawia się „Konfiguracja poprawna". Gotowe: S
 ## Jak to działa na co dzień
 
 1. Co dzień, ok. 10 minut przed godziną otwarcia (`PREPARE_LEAD`), SpotKeeper loguje się do serwisu i przygotowuje sesję.
-2. Dniem docelowym jest dzień 28 dni później. Jeśli wypada w zaznaczonym dniu tygodnia, nie jest urlopem ani (przy włączonym „Pomijaj święta") świętem, program rezerwuje.
+2. Dniem docelowym jest dzień oddalony o zasięg rezerwacji (domyślnie 28 dni). Jeśli wypada w zaznaczonym dniu tygodnia, nie jest urlopem ani (przy włączonym „Pomijaj święta") świętem, program rezerwuje.
 3. Dokładnie o godzinie otwarcia odpytuje serwis o wolne miejsca, wybiera jedno (z pominięciem miejsc dla niepełnosprawnych, z ładowarką i mini-EV; zgodne z wybranym poziomem), rozwiązuje zabezpieczenie Turnstile przez usługę `turnstile` i rezerwuje. Robi do 10 prób, w sumie do 7,5 minuty. Jeśli serwis dwa razy odpowie, że masz już rezerwację na ten czas, dzień dostaje status „pominięto".
 4. Po udanej rezerwacji robi to samo co aplikacja mobilna: pobiera cenę rezerwacji i rejestruje płatność (razem najwyżej 5 s, po 2 próby), potem płaci zapisaną kartą (do 5 prób) i sprawdza status co 2 sekundy, do 20 razy.
 
@@ -322,7 +322,7 @@ Ustawiasz je w sekcji `environment:` usługi `spotkeeper` w `docker-compose.yml`
 
 Usługa `turnstile` ma własne zmienne (m.in. `PORT`, `WORKERS`, `CONTEXT_REQUEST_TIMEOUT_S`); opisuje je [turnstile/README.md](../turnstile/README.md). Zwykle nie musisz ich zmieniać.
 
-Godzina otwarcia i kwota płatności nie są zmiennymi środowiskowymi: ustawiasz je w panelu.
+Godzina otwarcia, zasięg rezerwacji i kwota płatności nie są zmiennymi środowiskowymi: ustawiasz je w panelu.
 
 ## Dla programistów
 
